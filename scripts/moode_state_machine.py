@@ -5,7 +5,7 @@ import requests
 import asyncio
 import subprocess
 import threading
-import aiohttp
+from pathlib import Path
 
 from typing import Optional, Callable
 
@@ -21,8 +21,9 @@ from gpiod.line import Direction, Bias, Value
 
 I2C_ADDR = 0x3C
 
-FONT_BIG = "./fonts/NotoSans-Bold.ttf"
-FONT_SMALL = "./fonts/NotoSans-Medium.ttf"
+BASE_DIR = Path(__file__).resolve().parent
+FONT_BIG = str(BASE_DIR / "fonts" / "NotoSans-Bold.ttf")
+FONT_SMALL = str(BASE_DIR / "fonts" / "NotoSans-Medium.ttf")
 
 STREAM_URL = "http://stream.radiomost.hu:8200/live.mp3"
 

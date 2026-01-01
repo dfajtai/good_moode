@@ -28,6 +28,10 @@ moode_log () {
 #
 #exit 0
 
+/home/fajtai/scripts/run_app.sh &
+
+exit 0
+
 #
 # Default action is to play the "System Ready" chime
 # Do not modify this section
