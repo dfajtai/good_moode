@@ -51,6 +51,8 @@ class NowPlayingExtractHandler():
 
             # Parse Icecast/Shoutcast metaint from headers
             metaint_header = response.headers.get('icy-metaint')
+
+    
             if metaint_header:
                 metaint = int(metaint_header)
                 if verbose:

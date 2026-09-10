@@ -36,6 +36,8 @@ python3 --version >> "$LOG" 2>&1
 echo "$(date) starting python app" >> "$LOG"
 
 # python futtatás (stdout+stderr logba)
-python3 "$APP" >> "$LOG" 2>&1
+# -u: unbuffered stdout/stderr, hogy a print()-ek azonnal a logba kerüljenek,
+# ne csak a buffer megteléskor/process leállásakor
+python3 -u "$APP" >> "$LOG" 2>&1
 
 echo "$(date) python exited with code $?" >> "$LOG"

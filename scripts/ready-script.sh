@@ -28,7 +28,15 @@ moode_log () {
 #
 #exit 0
 
-/home/fajtai/scripts/run_app.sh &
+# FIX (2026-09): "cmd &" alone is not enough — the child inherits worker.php's
+# stdin/stdout/stderr file descriptors, and since run_app.sh -> moode_state_machine.py
+# runs forever, worker.php never sees EOF on that pipe and blocks its
+# post-startup sequence (auto-play, polling loop) until the child is killed.
+# setsid fully detaches into a new session (also immune to SIGHUP), and
+# redirecting stdin/stdout/stderr away from the inherited descriptors closes
+# the pipe worker.php is waiting on.
+setsid /home/fajtai/scripts/run_app.sh </dev/null >/dev/null 2>&1 &
+disown
 
 exit 0
 
