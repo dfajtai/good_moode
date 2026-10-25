@@ -48,6 +48,12 @@ STREAM_URL = "http://stream.radiomost.hu:8200/live.mp3"
 
 MOODE_VOL_URL = "http://localhost/command/?cmd=get_volume"
 
+# The station's automation has been sending this fixed placeholder (followed
+# by a phone number) as StreamTitle instead of the real track since ~2026-07,
+# so it carries no information; see is_placeholder_title().
+PLACEHOLDER_TITLE_PREFIX = "telefon-sms-viber"
+STATION_NAME = "Kaposvár Most"
+
 # Playback states used throughout this module. Plain ints (not an Enum) to
 # keep comparisons against MPD's own status output cheap and simple.
 STATE_IDLE = 0
@@ -76,6 +82,18 @@ def extract_title(metadata: str) -> Optional[str]:
     if not m:
         return None
     return m.group(1).strip()
+
+
+def is_placeholder_title(title: Optional[str]) -> bool:
+    """Return True if ``title`` carries no real track info.
+
+    That is the case for an empty title and for the station's fixed
+    "Telefon-SMS-Viber_-_<phone number>" placeholder. Only that one
+    placeholder is filtered; every other title is treated as real.
+    """
+    if not title:
+        return True
+    return title.strip().casefold().startswith(PLACEHOLDER_TITLE_PREFIX)
 
 
 def get_volume_percent() -> int:
@@ -598,8 +616,12 @@ class PlayingScreen(NowPlayingExtractHandler):
 
         self.font_big: FreeTypeFont = ImageFont.truetype(FONT_BIG, 15)
         self.font_small: FreeTypeFont = ImageFont.truetype(FONT_SMALL, 12)
+        # Larger font for the date/time line of the "no track info" layout.
+        self.font_datetime: FreeTypeFont = ImageFont.truetype(FONT_BIG, 14)
 
-        self._current_title = "Radio Most Kaposvár"
+        # No real track info until a non-placeholder title arrives.
+        self._current_title = ""
+        self._no_data = True
         self._current_volume = get_volume_percent()
 
         self._scroll_offset_artist = 0
@@ -711,6 +733,10 @@ class PlayingScreen(NowPlayingExtractHandler):
 
         self._set_contrast(self.contrast)
 
+        if self._no_data:
+            self._draw_no_data()
+            return
+
         with canvas(self.display) as draw:
             if artist:
                 self._scroll_text(draw, artist, 0, self._scroll_offset_artist)
@@ -728,15 +754,53 @@ class PlayingScreen(NowPlayingExtractHandler):
 
             draw.text((self.shift_x, 50 + self.shift_y), now_str, fill="white", font=self.font_small)
 
+    def _draw_no_data(self) -> None:
+        """Render the layout used when the stream has no real track info.
+
+        Same layout as the normal screen (volume bar in the middle), but
+        the two artist/title lines are replaced by the station name on the
+        top line, and the bottom date/time line is drawn in a larger font.
+        """
+        datetime_str = time.strftime("%Y-%m-%d %H:%M")
+
+        with canvas(self.display) as draw:
+            self._scroll_text(draw, STATION_NAME, 0, 0)
+
+            draw.text((self.shift_x, 36 + self.shift_y), "VOL", fill="white", font=self.font_small)
+
+            bar_w = int(90 * self._current_volume / 100)
+            draw.rectangle(
+                (30 + self.shift_x, 40 + self.shift_y, 30 + bar_w + self.shift_x, 43 + self.shift_y),
+                fill="white",
+            )
+
+            w = draw.textbbox((0, 0), datetime_str, font=self.font_datetime)[2]
+            draw.text(
+                ((128 - w) // 2 + self.shift_x, 46 + self.shift_y),
+                datetime_str,
+                fill="white",
+                font=self.font_datetime,
+            )
+
     async def _oled_title_coro(self, title: Optional[str]) -> bool:
         """Handle a title update from the metadata poller.
 
         Called with the new title when it changed, or ``None`` if the
         title is unchanged since the last poll (see
         ``NowPlayingExtractHandler._loop``). Only redraws (and resets the
-        scroll animation) when the title actually changed.
+        scroll animation) when the title actually changed. Empty and
+        placeholder titles (see ``is_placeholder_title``) switch the screen
+        to the "no data" layout.
         """
-        if title and title != self._current_title:
+        if title is None:
+            return True
+
+        if is_placeholder_title(title):
+            if not self._no_data:
+                self._no_data = True
+                self._draw()
+        elif self._no_data or title != self._current_title:
+            self._no_data = False
             self._current_title = title
             self._scroll_offset_artist = 0
             self._scroll_offset_song = 0
