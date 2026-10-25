@@ -62,6 +62,8 @@ STATE_PLAYING = 1
 BUTTON_PIN = 22  # BCM numbering, i.e. physical pin 15 on the 40-pin header
 GPIO_CHIP = "/dev/gpiochip0"
 
+SHIFT_MAX = 3  # largest burn-in shift in pixels (shift cycles 0..SHIFT_MAX)
+
 POLL_INTERVAL = 0.2  # seconds between MPD status polls in the main loop
 
 
@@ -512,8 +514,11 @@ class IdleScreen:
         self.display = display
         self.contrast = contrast
 
-        self.font_big: FreeTypeFont = ImageFont.truetype(FONT_BIG, 32)
-        self.font_small: FreeTypeFont = ImageFont.truetype(FONT_SMALL, 12)
+        # The clock is as large as fits the 128px width (with the burn-in
+        # shift margin): "00:00" at 48px is 122px wide. The date is kept
+        # clearly smaller so the time dominates.
+        self.font_big: FreeTypeFont = ImageFont.truetype(FONT_BIG, 48)
+        self.font_small: FreeTypeFont = ImageFont.truetype(FONT_SMALL, 16)
 
         self.blink = True
         self.last_blink = 0.0
@@ -554,17 +559,30 @@ class IdleScreen:
         datestr = time.strftime("%Y-%m-%d")
 
         with canvas(self.display) as draw:
-            # Clock, horizontally centered (display is 128px wide)
-            w = draw.textbbox((0, 0), timestr, font=self.font_big)[2]
-            x = (128 - w) // 2
-            y = 12  # roughly the top third of the 64px-tall display
+            # Position from the glyph bounding boxes. The time is measured
+            # with the colon (not the blank used while blinking), so the
+            # digits don't jump horizontally on every blink.
+            tb = draw.textbbox((0, 0), f"{t.tm_hour:02d}:{t.tm_min:02d}", font=self.font_big)
+            db = draw.textbbox((0, 0), datestr, font=self.font_small)
+            gap = 8  # pixels between clock and date
 
-            draw.text((x, y), timestr, fill="white", font=self.font_big)
+            # Keep a margin for the burn-in shift (up to SHIFT_MAX px right
+            # and down): center the block in the area that stays free.
+            area_w = 128 - SHIFT_MAX
+            area_h = 64 - SHIFT_MAX
+            block_h = (tb[3] - tb[1]) + gap + (db[3] - db[1])
+            top = (area_h - block_h) // 2
 
-            # Date, centered below the clock
-            dw = draw.textbbox((0, 0), datestr, font=self.font_small)[2]
             draw.text(
-                ((128 - dw) // 2, y + 38),
+                ((area_w - (tb[2] - tb[0])) // 2 - tb[0] + self.shift_x, top - tb[1] + self.shift_y),
+                timestr,
+                fill="white",
+                font=self.font_big,
+            )
+
+            date_top = top + (tb[3] - tb[1]) + gap
+            draw.text(
+                ((area_w - (db[2] - db[0])) // 2 - db[0] + self.shift_x, date_top - db[1] + self.shift_y),
                 datestr,
                 fill="white",
                 font=self.font_small,
@@ -615,17 +633,15 @@ class PlayingScreen(NowPlayingExtractHandler):
         self._render_enabled = True
 
         self.font_big: FreeTypeFont = ImageFont.truetype(FONT_BIG, 15)
-        self.font_small: FreeTypeFont = ImageFont.truetype(FONT_SMALL, 12)
-        # Larger font for the date/time line of the "no track info" layout.
-        self.font_datetime: FreeTypeFont = ImageFont.truetype(FONT_BIG, 14)
+        self.font_clock: FreeTypeFont = ImageFont.truetype(FONT_BIG, 30)
+        self.font_date: FreeTypeFont = ImageFont.truetype(FONT_SMALL, 11)
 
         # No real track info until a non-placeholder title arrives.
         self._current_title = ""
         self._no_data = True
         self._current_volume = get_volume_percent()
 
-        self._scroll_offset_artist = 0
-        self._scroll_offset_song = 0
+        self._scroll_offset = 0
         self._scroll_speed = 2
         self._scroll_gap = 20
 
@@ -709,8 +725,61 @@ class PlayingScreen(NowPlayingExtractHandler):
         draw.text((x, y_shifted), text, fill="white", font=self.font_big)
         draw.text((x + total, y_shifted), text, fill="white", font=self.font_big)
 
+    def _top_line(self) -> str:
+        """Text for the scrolling top line: "Title - Artist", or the station name.
+
+        The station name is used while there is no real track info. The
+        title comes first, then the artist, as the ICY text is "Artist -
+        Title"; without a recognizable separator the text is shown as is.
+        """
+        if self._no_data:
+            return STATION_NAME
+        artist, song = self.split_artist_title(self._current_title)
+        return f"{song} - {artist}" if song else artist
+
+    def _draw_clock(self, draw: ImageDraw, top: int) -> None:
+        """Draw the large time with the smaller date centered under it.
+
+        Positions are derived from the glyph bounding boxes, so ``top`` is
+        the first pixel row of the time's ink, regardless of font ascent.
+        """
+        gap = 3  # pixels between time and date
+        timestr = time.strftime("%H:%M")
+        datestr = time.strftime("%Y-%m-%d")
+
+        tb = draw.textbbox((0, 0), timestr, font=self.font_clock)
+        draw.text(
+            ((128 - (tb[2] - tb[0])) // 2 - tb[0] + self.shift_x, top - tb[1] + self.shift_y),
+            timestr,
+            fill="white",
+            font=self.font_clock,
+        )
+
+        db = draw.textbbox((0, 0), datestr, font=self.font_date)
+        date_top = top + (tb[3] - tb[1]) + gap
+        draw.text(
+            ((128 - (db[2] - db[0])) // 2 - db[0] + self.shift_x, date_top - db[1] + self.shift_y),
+            datestr,
+            fill="white",
+            font=self.font_date,
+        )
+
+    def _draw_volume_strip(self, draw: ImageDraw) -> None:
+        """Draw the volume as a thin 3px bar along the bottom edge.
+
+        Not affected by the burn-in shift: it stays on the last three rows
+        of the display, and its length changes with the volume anyway.
+        """
+        bar_w = int(128 * self._current_volume / 100)
+        if bar_w > 0:
+            draw.rectangle((0, 61, bar_w - 1, 63), fill="white")
+
     def _draw(self) -> None:
-        """Render the now-playing screen: artist/title, volume bar, clock.
+        """Render the now-playing screen.
+
+        Layout (top to bottom): scrolling "Title - Artist" line (the station
+        name while there is no track info), large clock with the date under
+        it, and a thin volume bar at the bottom.
 
         No-op if ``render_enabled`` is False (screen currently hidden
         because playback is idle).
@@ -726,61 +795,12 @@ class PlayingScreen(NowPlayingExtractHandler):
             self.shift_y = (self.shift_y + 1) % 4
             self.last_shift = now
 
-        artist, song = self.split_artist_title(self._current_title)
-
-        now_str = time.strftime("%Y-%m-%d %H:%M")
-        vol = self._current_volume
-
         self._set_contrast(self.contrast)
 
-        if self._no_data:
-            self._draw_no_data()
-            return
-
         with canvas(self.display) as draw:
-            if artist:
-                self._scroll_text(draw, artist, 0, self._scroll_offset_artist)
-
-            if song:
-                self._scroll_text(draw, song, 18, self._scroll_offset_song)
-
-            draw.text((self.shift_x, 36 + self.shift_y), "VOL", fill="white", font=self.font_small)
-
-            bar_w = int(90 * vol / 100)
-            draw.rectangle(
-                (30 + self.shift_x, 40 + self.shift_y, 30 + bar_w + self.shift_x, 43 + self.shift_y),
-                fill="white",
-            )
-
-            draw.text((self.shift_x, 50 + self.shift_y), now_str, fill="white", font=self.font_small)
-
-    def _draw_no_data(self) -> None:
-        """Render the layout used when the stream has no real track info.
-
-        Same layout as the normal screen (volume bar in the middle), but
-        the two artist/title lines are replaced by the station name on the
-        top line, and the bottom date/time line is drawn in a larger font.
-        """
-        datetime_str = time.strftime("%Y-%m-%d %H:%M")
-
-        with canvas(self.display) as draw:
-            self._scroll_text(draw, STATION_NAME, 0, 0)
-
-            draw.text((self.shift_x, 36 + self.shift_y), "VOL", fill="white", font=self.font_small)
-
-            bar_w = int(90 * self._current_volume / 100)
-            draw.rectangle(
-                (30 + self.shift_x, 40 + self.shift_y, 30 + bar_w + self.shift_x, 43 + self.shift_y),
-                fill="white",
-            )
-
-            w = draw.textbbox((0, 0), datetime_str, font=self.font_datetime)[2]
-            draw.text(
-                ((128 - w) // 2 + self.shift_x, 46 + self.shift_y),
-                datetime_str,
-                fill="white",
-                font=self.font_datetime,
-            )
+            self._scroll_text(draw, self._top_line(), -3, self._scroll_offset)
+            self._draw_clock(draw, 24)
+            self._draw_volume_strip(draw)
 
     async def _oled_title_coro(self, title: Optional[str]) -> bool:
         """Handle a title update from the metadata poller.
@@ -798,12 +818,12 @@ class PlayingScreen(NowPlayingExtractHandler):
         if is_placeholder_title(title):
             if not self._no_data:
                 self._no_data = True
+                self._scroll_offset = 0
                 self._draw()
         elif self._no_data or title != self._current_title:
             self._no_data = False
             self._current_title = title
-            self._scroll_offset_artist = 0
-            self._scroll_offset_song = 0
+            self._scroll_offset = 0
             self._draw()
         return True
 
@@ -814,8 +834,7 @@ class PlayingScreen(NowPlayingExtractHandler):
         title changed, so the scrolling text and volume bar stay live even
         while the current track's title is unchanged.
         """
-        self._scroll_offset_artist += self._scroll_speed
-        self._scroll_offset_song += self._scroll_speed
+        self._scroll_offset += self._scroll_speed
         self._current_volume = get_volume_percent()
         self._draw()
         return True
