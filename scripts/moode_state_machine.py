@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OLED status display + physical play/pause button for moOde audio player.
+"""OLED status display, play/pause button and relay for moOde audio player.
 
 Runs as a standalone process alongside moOde/MPD on a Raspberry Pi. It polls
 MPD's playback state and drives a small SH1106 OLED display through two
@@ -12,6 +12,9 @@ screens:
 
 A single GPIO push-button (BCM pin ``BUTTON_PIN``) toggles play/pause via
 ``mpc toggle``, polled from a background thread (see ``GPIOButton``).
+
+A relay on BCM pin ``RELAY_PIN`` (e.g. switching the amplifier's power) is
+driven high while MPD is playing and low otherwise (see ``Relay``).
 
 Entry point: ``main()`` at the bottom of this file.
 """
@@ -61,6 +64,9 @@ STATE_PLAYING = 1
 
 BUTTON_PIN = 22  # BCM numbering, i.e. physical pin 15 on the 40-pin header
 GPIO_CHIP = "/dev/gpiochip0"
+
+RELAY_PIN = 26  # BCM numbering, i.e. physical pin 37; high = playing, low = otherwise
+RELAY_OFF_DELAY = 2.0  # seconds of continuous idle before the relay drops (see Relay)
 
 SHIFT_MAX = 3  # largest burn-in shift in pixels (shift cycles 0..SHIFT_MAX)
 
@@ -494,6 +500,81 @@ class GPIOButton:
             pass
 
 
+# ================= RELAY (libgpiod 2.x) =================
+
+class Relay:
+    """Relay output that follows the playback state.
+
+    The line is driven high while music is playing and low otherwise, and is
+    low from construction until the first ``update(True)``. Dropping the relay
+    is delayed by ``off_delay`` seconds of continuous idle: ``get_state()``
+    reports idle on any ``mpc`` failure or timeout, and a short pause or
+    track change should not click the relay (and whatever it powers) off
+    and on again. Switching on is immediate.
+    """
+
+    def __init__(self, line: int, off_delay: float = RELAY_OFF_DELAY) -> None:
+        """
+        Args:
+            line: GPIO line number (BCM numbering) the relay input is wired to.
+            off_delay: Seconds of continuous idle before the relay is
+                switched off.
+        """
+        self.line = line
+        self.off_delay = off_delay
+
+        self._on = False
+        self._idle_since: Optional[float] = None
+
+        self.request = gpiod.request_lines(
+            GPIO_CHIP,
+            consumer="moode-relay",
+            config={
+                line: gpiod.LineSettings(
+                    direction=Direction.OUTPUT,
+                    output_value=Value.INACTIVE,
+                )
+            },
+        )
+        print(f"[RELAY] GPIO{line} ready, relay off", flush=True)
+
+    def _set(self, on: bool) -> None:
+        """Drive the line; a failure is logged and retried on the next update."""
+        try:
+            self.request.set_value(self.line, Value.ACTIVE if on else Value.INACTIVE)
+            self._on = on
+            print(f"[RELAY] {'ON' if on else 'OFF'}", flush=True)
+        except Exception as exc:
+            print(f"[RELAY ERROR] {exc}", flush=True)
+
+    def update(self, playing: bool) -> None:
+        """Feed the current playback state; call this on every state poll."""
+        if playing:
+            self._idle_since = None
+            if not self._on:
+                self._set(True)
+            return
+
+        if not self._on:
+            return
+        now = time.monotonic()
+        if self._idle_since is None:
+            self._idle_since = now
+        elif now - self._idle_since >= self.off_delay:
+            self._set(False)
+
+    def stop(self) -> None:
+        """Switch the relay off and release the GPIO line request."""
+        try:
+            self.request.set_value(self.line, Value.INACTIVE)
+        except Exception:
+            pass
+        try:
+            self.request.release()
+        except Exception:
+            pass
+
+
 # ================= IDLE SCREEN =================
 
 class IdleScreen:
@@ -843,7 +924,7 @@ class PlayingScreen(NowPlayingExtractHandler):
 # ================= STATE MACHINE =================
 
 class MoodeStateMachine:
-    """Top-level orchestrator: owns the display, button and both screens.
+    """Top-level orchestrator: owns the display, button, relay and both screens.
 
     Polls MPD's playback state (``get_state``) and switches between
     ``IdleScreen`` and ``PlayingScreen`` accordingly, driving the
@@ -872,11 +953,21 @@ class MoodeStateMachine:
 
         self.button = GPIOButton(BUTTON_PIN, toggle_play_pause)
 
+        # A relay that can't be set up (e.g. the line is already taken) must
+        # not take the display down with it; it is only logged.
+        self.relay: Optional[Relay] = None
+        try:
+            self.relay = Relay(RELAY_PIN)
+        except Exception as exc:
+            print(f"[RELAY ERROR] could not set up GPIO{RELAY_PIN}: {exc}", flush=True)
+
         # Establish the initial screen/state based on what MPD is actually
         # doing right now (rather than defaulting to idle and waiting for
         # the first poll in run()).
         self.state = get_state()
         self._apply_state(self.state)
+        if self.relay:
+            self.relay.update(self.state == STATE_PLAYING)
 
     def _apply_state(self, new_state: int) -> None:
         """Switch the active screen to match ``new_state``.
@@ -900,8 +991,9 @@ class MoodeStateMachine:
         """Main event loop: poll MPD state, switch screens, refresh the display.
 
         Runs until cancelled (e.g. by Ctrl-C in ``main()``). On exit,
-        always cancels any in-flight metadata task and stops the GPIO
-        button's polling thread, so the process can shut down cleanly.
+        always cancels any in-flight metadata task, stops the GPIO
+        button's polling thread and switches the relay off, so the process
+        can shut down cleanly.
         """
         try:
             while True:
@@ -929,6 +1021,9 @@ class MoodeStateMachine:
                             self.playing_screen._main()
                         )
 
+                    if self.relay:
+                        self.relay.update(self.state == STATE_PLAYING)
+
                     self.last_poll = now
 
                 # Refresh the currently active screen.
@@ -945,6 +1040,9 @@ class MoodeStateMachine:
 
             if self.button:
                 self.button.stop()
+
+            if self.relay:
+                self.relay.stop()
 
 
 # ================= MAIN =================
