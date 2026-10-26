@@ -87,7 +87,7 @@ def title(c, t, sub):
 
 
 def footer(c, n):
-    txt(c, 40, 22, "good_moode · wiring PLAN (not verified) · sources: good_moode/, experiment/rotary_encoder_test.py, "
+    txt(c, 40, 22, "good_moode · wiring PLAN (not verified) · sources: good_moode/, moOde settings, "
                    "Waveshare PCM5122-Audio-Board-A wiki, user-supplied wiring", "R", 7, MUTED)
     txt(c, W - 40, 22, f"{n}/{NPAGES}", "R", 7, MUTED, "r")
 
@@ -168,7 +168,7 @@ def page1(c):
 
     box(y(1) + 12, y(7) - 12, "OLED display", ["SH1106, 128×64", "I2C bus 1, address 0x3C"],
         [(y(1), "VCC (5V)", "A"), (y(3), "SDA"), (y(5), "SCL"), (y(7), "GND", "B")])
-    box(y(11) + 14, y(25) - 14, "Rotary encoder", ["with push button", "(experiment/rotary_encoder_test.py)"],
+    box(y(11) + 14, y(25) - 14, "Rotary encoder", ["with push button", "volume: moOde's own support"],
         [(y(11), "S1 / CLK"), (y(13), "S2 / DT"), (y(15), "KEY / SW"), (y(17), "+ (5V)", "A"), (y(25), "GND", "B")])
     para(c, 50, y(19) + 4, "The KEY button is the same GPIO22 as the main program's play/pause button.", 160, "I", 7.5, MUTED)
 
@@ -316,9 +316,9 @@ def page3(c):
         (C_SDA, "OLED", "SDA", "3", "GPIO2", "I2C-1 data, address 0x3C (shared with the HAT)", "good_moode/config.py (I2C_ADDR)"),
         (C_SCL, "OLED", "SCL", "5", "GPIO3", "I2C-1 clock (shared with the HAT)", "good_moode/state_machine.py"),
         (C_GND, "OLED", "GND", "14", "GND", "OLED ground (branch B)", us),
-        (C_S1, "Rotary encoder", "S1 / CLK", "11", "GPIO17", "rotation: volume +5 / −5", "experiment/rotary_encoder_test.py"),
-        (C_S2, "Rotary encoder", "S2 / DT", "13", "GPIO27", "second phase of the rotation", "experiment/rotary_encoder_test.py"),
-        (C_KEY, "Rotary encoder", "KEY / SW (button)", "15", "GPIO22", "short: play/pause (mpc toggle), 1 s: mute", "good_moode/config.py (BUTTON_PIN)"),
+        (C_S1, "Rotary encoder", "S1 / CLK", "11", "GPIO17", "rotation: volume, handled by moOde", "moOde setting (user-supplied)"),
+        (C_S2, "Rotary encoder", "S2 / DT", "13", "GPIO27", "second phase of the rotation, handled by moOde", "moOde setting (user-supplied)"),
+        (C_KEY, "Rotary encoder", "KEY / SW (button)", "15", "GPIO22", "play/pause: mpc toggle, handled by good_moode", "good_moode/config.py (BUTTON_PIN)"),
         (C_5V, "Rotary encoder", "+ (if present)", "4", "5V", "module supply, 5 V (branch A)", us),
         (C_GND, "Rotary encoder", "GND", "14", "GND", "module ground (branch B)", us),
         (C_RLY, "Relay", "IN", "37", "GPIO26", "control: HIGH while playing, else LOW (2 s delay)", "good_moode/hardware.py (Relay)"),
@@ -383,7 +383,7 @@ def page4(c):
         ("Check: 5 V and the GPIOs (the Pi's pins tolerate 3.3 V only)", [
             "OLED: if the module's I2C pull-ups go to its VCC (5 V), 5 V reaches GPIO2/3 at rest. Measure SDA at rest: it must not exceed 3.3 V. "
             "Many modules pull up to the 3.3 V side, but it depends on the module.",
-            "Encoder: the code uses the internal pull-ups, so it works without the \"+\" pin. If the module (e.g. KY-040) has pull-ups to \"+\" and \"+\" gets 5 V, "
+            "Encoder: a bare encoder needs no \"+\" pin (the Pi's inputs can use their internal pull-ups; check what moOde's encoder setting does). If the module (e.g. KY-040) has pull-ups to \"+\" and \"+\" gets 5 V, "
             "the GPIO17/27/22 idle level can be 5 V. Then connect \"+\" to 3.3V (pin 1 or 17) or leave it unconnected; the button needs only GND.",
             "Relay: the module input is driven by the Pi's 3.3 V signal. Most modules switch on that, but verify. Many cheap modules are active-low (LOW closes): "
             "there HIGH would release the relay. The stated behaviour (GPIO26 high while playing) means an active-high module or inverted logic. "
@@ -394,15 +394,16 @@ def page4(c):
         ("What the code states", [
             "OLED: luma.oled sh1106, i2c(port=1, address=0x3C), 128×64 (good_moode/config.py: I2C_ADDR, state_machine.py). Button: BUTTON_PIN = 22 (BCM), /dev/gpiochip0, "
             "internal pull-up, a press pulls the pin to GND; a press runs mpc toggle.",
-            "Rotary encoder (experiment/rotary_encoder_test.py only): S1 = GPIO17, S2 = GPIO27, KEY = GPIO22. Rotation: volume ±5, short press: play/pause, 1 s press: mute.",
+            "Rotary encoder: the volume is controlled by moOde's own rotary encoder support (S1 = GPIO17, S2 = GPIO27 are the pins set there). good_moode only shows the volume: it follows MPD's mixer events, so the bar changes as soon as moOde changes the volume.",
             "Relay (good_moode/config.py: RELAY_PIN = 26, good_moode/hardware.py: Relay): GPIO26 high while playing, low otherwise; it drops after 2 s of continuous idle "
             "(RELAY_OFF_DELAY) so a short pause or an mpc error does not click it, and it is switched off on shutdown.",
         ]),
         ("What the code does not state", [
             "Whether the HAT has a pass-through header: the Waveshare page does not say. If not, wires go to the Pi Zero's solder pads on the back or to a stacking header.",
             "The sound card is called IQaudIODAC according to Waveshare; pick the matching I2S device in moOde. Checks: aplay -l, i2cdetect -y 1 (3C and 4C or UU), pinctrl get 17,22,26,27.",
-            "GPIO22 is the main program's button and the encoder's KEY in the experiment: they cannot run at the same time because both claim the line. "
-            "Encoder volume control exists only in the experiment script.",
+            "GPIO22 (the encoder's KEY) is the play/pause button of good_moode. Do not assign the same pin to the encoder's switch in moOde's settings, "
+            "otherwise both react to one press (a double toggle). "
+            "experiment/rotary_encoder_test.py is obsolete (moOde handles the encoder); do not run it next to moOde's encoder setting.",
         ]),
     ]
     for head, items in sections:

@@ -1,4 +1,13 @@
 #!/home/fajtai/scripts/.venv/bin/python
+"""OBSOLETE experiment: volume is handled by moOde's own rotary encoder support (Peripherals).
+
+Kept only as a pin-wiring test. Known problems, which are why moOde's support is used instead:
+- the direction comes from the sign of encoder.steps (a running total), not from the last turn, so after
+  turning right a few steps, turning left still sends "up" until the total crosses zero;
+- every step is a separate, blocking HTTP call (0.3 s timeout) to a slow PHP command, so fast turning
+  loses or delays steps and the real and the shown volume drift apart.
+Do not run it together with moOde's rotary encoder setting or good_moode (they claim the same pins).
+"""
 import requests
 import gpiozero
 from signal import pause

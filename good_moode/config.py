@@ -37,8 +37,17 @@ SHIFT_MAX = 3  # largest burn-in shift in pixels (shift cycles 0..SHIFT_MAX)
 
 POLL_INTERVAL = 0.2  # seconds between MPD status polls in the main loop
 
+# Automatic recovery when MPD stops with an ERROR (e.g. the stream connection timed out after a Wi-Fi
+# drop): resume playback, retrying with growing pauses, for RECOVER_WINDOW seconds, then give up.
+# A stop without an error (you pressed stop or pause) is never resumed. See recovery.PlaybackRecovery.
+RECOVER_WINDOW = 600.0  # seconds to keep trying after the error
+RECOVER_BACKOFF = (3.0, 5.0, 10.0, 20.0, 30.0)  # seconds before the 1st, 2nd, ... retry; the last repeats
+
 # Each ICY metadata read opens a new connection to the radio stream and pulls
 # ~16 KB through the Pi's (weak) Wi-Fi, competing with MPD's own stream. Read it
 # rarely; the scroll animation and clock still tick every PlayingScreen interval.
 METADATA_INTERVAL = 5.0  # seconds between ICY metadata reads
-VOLUME_INTERVAL = 1.0  # seconds between volume reads (each one runs ``mpc``)
+VOLUME_INTERVAL = 1.0  # seconds between volume reads when the volume is polled (each read runs ``mpc``)
+# The program normally does not poll the volume: mpd.VolumeWatcher follows MPD's `mixer` events, and
+# re-reads it anyway after this many quiet seconds as a safety net.
+VOLUME_WATCH_FALLBACK = 2.0

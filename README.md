@@ -1,7 +1,7 @@
 # good_moode
 
 An add-on for a [moOde](https://moodeaudio.org/) audio player on a Raspberry Pi Zero 2 W that plays an internet
-radio. It adds a 128×64 OLED (now playing, clock, volume), a play/pause button (the rotary encoder's push button)
+radio. It adds a 128×64 OLED (now playing, clock, volume), a play/pause button (the push button of the rotary encoder, whose volume knob moOde handles itself)
 and a relay that is on while music plays. Wiring: [docs/wiring.pdf](docs/wiring.pdf).
 
 ## Folders
@@ -94,6 +94,7 @@ After a reboot moOde runs it, and it starts the program (`python -m good_moode`)
     python scripts/local/deploy.py      # update: copy the files, install the ready-script, restart (logging off)
     python scripts/local/deploy.py --logging   # the same with logging on (program log + diagnostics logger)
     python scripts/local/download.py    # download the logs into pi_logs/
+    python scripts/local/clear_logs.py  # delete the logs on the Pi (asks first; --all also moOde's log and the journals)
     python scripts/local/reboot.py      # reboot the Pi
     python scripts/local/pi_remote.py   # interactive shell: status, tail, restart, shutdown, run, help
 

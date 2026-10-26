@@ -2,11 +2,13 @@
 
 import re
 import subprocess
+import threading
 import time
+from typing import Optional
 
 import requests
 
-from .config import MOODE_VOL_URL, STATE_IDLE, STATE_PLAYING, STREAM_URL
+from .config import MOODE_VOL_URL, STATE_IDLE, STATE_PLAYING, STREAM_URL, VOLUME_WATCH_FALLBACK
 from .log import log
 
 
@@ -34,6 +36,49 @@ def get_volume_percent() -> int:
     except Exception:
         pass
     return 50
+
+
+class VolumeWatcher:
+    """Keeps the current volume up to date by following MPD's ``mixer`` events instead of polling.
+
+    The volume is changed by moOde (its own rotary encoder support, the web UI, ...) and MPD reports every
+    change as a ``mixer`` event. A background thread waits for it with ``mpc idle mixer`` and reads the new
+    value at once, so the display follows the real volume without delay and without a ``mpc`` call per
+    drawn frame. ``value`` is always the last volume read; reading it costs nothing.
+
+    ``mpc idle`` is a new connection each time, so a change that lands in the few milliseconds between two
+    waits could be missed; the wait therefore also ends after ``fallback`` quiet seconds and the volume is
+    re-read anyway (that is the worst case for such a miss). If MPD is unreachable the thread backs off
+    for two seconds instead of spinning.
+    """
+
+    def __init__(self, fallback: float = VOLUME_WATCH_FALLBACK) -> None:
+        self.fallback = fallback
+        self.value = get_volume_percent()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="volume-watcher", daemon=True)
+
+    def start(self) -> None:
+        """Start following the volume."""
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Ask the thread to end (it is a daemon thread, so the process can exit without waiting)."""
+        self._stop.set()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                done = subprocess.run(["mpc", "idle", "mixer"], capture_output=True, timeout=self.fallback)
+                if done.returncode != 0:  # MPD unreachable or mpc failed: do not spin
+                    self._stop.wait(2.0)
+                    continue
+            except subprocess.TimeoutExpired:
+                pass  # quiet for `fallback` seconds: re-read below as a safety net
+            except Exception:
+                self._stop.wait(2.0)
+                continue
+            self.value = get_volume_percent()
 
 
 def toggle_play_pause() -> None:
@@ -64,20 +109,41 @@ def toggle_play_pause() -> None:
         log(f"[ERROR] MPC exception: {e}")
 
 
-def get_state() -> int:
-    """Return the current playback state: STATE_PLAYING or STATE_IDLE.
+def read_status() -> tuple[int, Optional[str]]:
+    """Return ``(state, error)`` from one ``mpc status`` call.
 
-    Derived from ``mpc status``; any failure (MPD unreachable, timeout,
-    etc.) is treated as idle, which is the safer default for display
-    purposes.
+    ``state`` is STATE_PLAYING or STATE_IDLE; any failure to ask MPD
+    (unreachable, timeout, ...) counts as idle, which is the safer default
+    for display purposes. ``error`` is the text of MPD's ``ERROR:`` line
+    (e.g. a stream that timed out) or None. MPD keeps that line while it is
+    stopped because of the error, until the next play.
     """
     try:
         out = subprocess.check_output(["mpc", "status"], text=True, timeout=0.5)
-        if "[playing]" in out:
-            return STATE_PLAYING
     except Exception:
-        pass
-    return STATE_IDLE
+        return STATE_IDLE, None
+    state = STATE_PLAYING if "[playing]" in out else STATE_IDLE
+    match = re.search(r"^ERROR: (.+)$", out, re.MULTILINE)
+    return state, match.group(1).strip() if match else None
+
+
+def get_state() -> int:
+    """Return the current playback state: STATE_PLAYING or STATE_IDLE (see ``read_status``)."""
+    return read_status()[0]
+
+
+def resume_playback() -> bool:
+    """Start playback again with ``mpc play``; returns True if the command succeeded.
+
+    ``mpc play`` on a stopped stream makes MPD reconnect to it. Success only means
+    that MPD accepted the command: if the network is still down, the next
+    ``read_status`` shows the error again and the recovery retries later.
+    """
+    try:
+        return subprocess.run(["mpc", "play"], capture_output=True, timeout=3).returncode == 0
+    except Exception as exc:
+        log(f"[ERROR] resuming playback failed: {exc}")
+        return False
 
 
 def ensure_stream_playing(retries: int = 5, delay: float = 1.0) -> None:

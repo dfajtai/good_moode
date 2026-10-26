@@ -30,7 +30,8 @@ from .config import (
 )
 from .hardware import GPIOButton, Relay
 from .log import log
-from .mpd import ensure_stream_playing, get_state, toggle_play_pause
+from .mpd import VolumeWatcher, ensure_stream_playing, get_state, read_status, resume_playback, toggle_play_pause
+from .recovery import PlaybackRecovery
 from .screens import IdleScreen, PlayingScreen
 
 
@@ -53,10 +54,16 @@ class MoodeStateMachine:
         self.display = sh1106(self.serial, width=128, height=64)
 
         self.state: Optional[int] = None
+        self.recovery = PlaybackRecovery()  # resumes playback after an MPD error, see recovery.py
         self.last_poll = 0.0
 
         self.idle_screen = IdleScreen(self.display)
-        self.playing_screen = PlayingScreen(self.display, STREAM_URL)
+        # The volume is changed by moOde itself; follow MPD's mixer events so the bar shows the real value at once.
+        self.volume = VolumeWatcher()
+        self.volume.start()
+        self.playing_screen = PlayingScreen(
+            self.display, STREAM_URL, volume_source=lambda: self.volume.value, volume_interval=0.0
+        )
         self.play_task: asyncio.Task | None = None
 
         self.CONTRAST_IDLE = 40
@@ -111,7 +118,9 @@ class MoodeStateMachine:
                 now = time.monotonic()
 
                 if now - self.last_poll > POLL_INTERVAL:
-                    new_state = get_state()
+                    new_state, error = read_status()
+                    if self.recovery.update(new_state, error, now):
+                        resume_playback()
                     if new_state != self.state:
                         # Transitioning to idle: cancel and await the
                         # metadata task's cleanup before switching screens.
@@ -154,6 +163,8 @@ class MoodeStateMachine:
 
             if self.relay:
                 self.relay.stop()
+
+            self.volume.stop()
 
 
 def main() -> None:

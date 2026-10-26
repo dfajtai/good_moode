@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from luma.core.render import canvas
 from PIL import ImageFont
@@ -130,6 +130,8 @@ class PlayingScreen(NowPlayingExtractHandler):
         source_url: str,
         interval: float = 0.2,
         contrast: int = 180,
+        volume_source: Optional[Callable[[], int]] = None,
+        volume_interval: float = VOLUME_INTERVAL,
     ) -> None:
         """
         Args:
@@ -140,6 +142,12 @@ class PlayingScreen(NowPlayingExtractHandler):
                 ``METADATA_INTERVAL``).
             contrast: OLED contrast level (0-255) used while this screen
                 is active.
+            volume_source: Function that returns the volume (0-100). Default:
+                ``get_volume_percent``, which runs ``mpc`` on every call and
+                is therefore polled only every ``volume_interval`` seconds.
+                Pass the ``value`` of a ``VolumeWatcher`` with
+                ``volume_interval=0`` to follow the volume instantly for free.
+            volume_interval: Minimum seconds between two calls of ``volume_source``.
         """
         super().__init__(
             source_url=source_url,
@@ -160,7 +168,9 @@ class PlayingScreen(NowPlayingExtractHandler):
         # No real track info until a non-placeholder title arrives.
         self._current_title = ""
         self._no_data = True
-        self._current_volume = get_volume_percent()
+        self._volume_source = volume_source
+        self._volume_interval = volume_interval
+        self._current_volume = self._read_volume()
         self._last_volume_read = time.monotonic()
 
         self._scroll_offset = 0
@@ -349,18 +359,22 @@ class PlayingScreen(NowPlayingExtractHandler):
             self._draw()
         return True
 
+    def _read_volume(self) -> int:
+        """Ask the volume source (looked up at call time, so that it can be replaced in tests / previews)."""
+        return (self._volume_source or get_volume_percent)()
+
     async def _oled_update_coro(self) -> bool:
         """Periodic tick: advance the scroll animation and refresh volume/clock.
 
         Called on every tick regardless of whether the title changed, so
         the scrolling text and the volume bar stay live even while the
         current track's title is unchanged. The volume is re-read at most
-        every ``VOLUME_INTERVAL`` seconds (each read runs ``mpc``).
+        every ``volume_interval`` seconds.
         """
         self._scroll_offset += self._scroll_speed
         now = time.monotonic()
-        if now - self._last_volume_read >= VOLUME_INTERVAL:
-            self._current_volume = get_volume_percent()
+        if now - self._last_volume_read >= self._volume_interval:
+            self._current_volume = self._read_volume()
             self._last_volume_read = now
         self._draw()
         return True

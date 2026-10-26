@@ -22,6 +22,9 @@ Commands:
     log                    download the logs (playback_diag.log*, playback_logger.err,
                            state_machine.log, moode.log, mpd and kernel journals)
     tail [name|path] [n]   last n lines of a log; names: diag, state, err, moode
+    clear [--all]          delete our logs on the Pi (diagnostics log and its rotated copies, launcher error
+                           file, program log); --all also empties moOde's log and the systemd journals.
+                           Asks first. The downloaded copies in pi_logs/ are not touched.
     get <remote> [local]   download a file
     put <local> <remote>   upload a file
     setup [--logging] [--reset-stations]
@@ -382,6 +385,35 @@ class PiRemote:
         )
         self.show(command, sudo=True, timeout=30)
 
+    def clear_logs(self, include_system: bool = False, assume_yes: bool = False) -> None:
+        """Delete the logs on the Pi: ours, and with ``include_system`` moOde's log and the journals too.
+
+        Ours: the diagnostics log (emptied, its rotated copies .1-.5 deleted), the launcher's error file
+        (deleted) and the program's service log (emptied). The files that a running program keeps open are
+        emptied, not deleted, so that logging simply continues into the empty file. Runs as root because the
+        logger runs as root and owns its files. Shows what is there first and asks, unless ``assume_yes``.
+        The copies already downloaded into ./pi_logs/ on the PC are not touched.
+        """
+        diag, err, state = self.resolve("diag"), self.resolve("err"), self.resolve("state")
+        rotated = [f"{diag}.{i}" for i in range(1, 6)]
+        listing = [diag, err, state, *rotated] + (["/var/log/moode.log"] if include_system else [])
+        print("Logs on the Pi (size in bytes, - = not there):")
+        self.show("for f in " + " ".join(shlex.quote(f) for f in listing)
+                  + '; do if [ -e "$f" ]; then printf "  %10s  %s\n" "$(stat -c %s "$f")" "$f"; '
+                    'else printf "  %10s  %s\n" - "$f"; fi; done', sudo=True)
+        if include_system:
+            self.show("echo \"  journals: $(journalctl --disk-usage 2>/dev/null)\"", sudo=True)
+        what = "our logs" + (", moOde's log and the systemd journals" if include_system else "")
+        if not assume_yes and not confirmed(f"Delete {what} on the Pi? [y/N] "):
+            print("Cancelled.")
+            return
+        quoted = lambda files: " ".join(shlex.quote(f) for f in files)
+        command = (f"rm -f {quoted([err, *rotated])}; "
+                   f"for f in {quoted([diag, state])}; do [ -e \"$f\" ] && : > \"$f\"; done; ")
+        if include_system:
+            command += ": > /var/log/moode.log; journalctl --rotate >/dev/null 2>&1; journalctl --vacuum-time=1s >/dev/null 2>&1; "
+        self.show(command + "echo '  logs cleared'", sudo=True)
+
     def power(self, action: str, assume_yes: bool = False) -> None:
         """Shut down or reboot the Pi (``action`` is "shutdown" or "reboot"); asks first unless ``assume_yes``."""
         label = "shut down" if action == "shutdown" else "reboot"
@@ -411,6 +443,8 @@ class PiRemote:
             self.status()
         elif cmd == "log":
             self.download_logs()
+        elif cmd == "clear":
+            self.clear_logs("--all" in args, assume_yes)
         elif cmd == "tail":
             self.tail(args[0] if args else "diag", int(args[1]) if len(args) > 1 else 40)
         elif cmd == "get" and args:
