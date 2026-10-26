@@ -46,11 +46,13 @@ from typing import Optional
 
 import requests
 
+from .config import STREAM_URL
+
 BASE_DIR = Path(__file__).resolve().parent
 LOG_FILE = BASE_DIR.parent / "playback_diag.log"  # next to the package, i.e. ~/scripts
 
 ICECAST_STATUS_URL = "http://stream.radiomost.hu:8200/status-json.xsl"
-MOUNT = "live.mp3"
+MOUNT = STREAM_URL.rsplit("/", 1)[1]  # the mount that is playing, e.g. "mobil.aac"
 MPD_LOG_FILES = ("/var/log/mpd/mpd.log", "/var/log/mpd.log")
 MOODE_LOG = "/var/log/moode.log"
 

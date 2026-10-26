@@ -1,7 +1,7 @@
 [project]
 name = "good-moode"
 version = "0.1.0"
-description = "OLED display, play/pause button and relay for a moOde audio player on a Raspberry Pi Zero 2 W"
+description = "A simplified, standalone one-button internet radio built on moOde: OLED, play/pause button, relay, automatic start and recovery"
 authors = [
     {name = "Daniel Fajtai",email = "daniel.fajtai@gmail.com"}
 ]

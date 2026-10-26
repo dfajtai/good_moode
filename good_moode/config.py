@@ -12,7 +12,9 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 FONT_BIG = str(PACKAGE_DIR / "fonts" / "NotoSans-Bold.ttf")
 FONT_SMALL = str(PACKAGE_DIR / "fonts" / "NotoSans-Medium.ttf")
 
-STREAM_URL = "http://stream.radiomost.hu:8200/live.mp3"
+# The 64 kbps AAC stream of the station: a fifth of the data of live.mp3 (320 kbps), which is far more robust on the
+# Pi Zero 2 W's weak Wi-Fi. It carries the same ICY metadata. Add the same station in moOde (see the README).
+STREAM_URL = "http://stream.radiomost.hu:8200/mobil.aac"
 
 MOODE_VOL_URL = "http://localhost/command/?cmd=get_volume"
 

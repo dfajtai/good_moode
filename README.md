@@ -1,8 +1,20 @@
 # good_moode
 
-An add-on for a [moOde](https://moodeaudio.org/) audio player on a Raspberry Pi Zero 2 W that plays an internet
-radio. It adds a 128×64 OLED (now playing, clock, volume), a play/pause button (the push button of the rotary encoder, whose volume knob moOde handles itself)
-and a relay that is on while music plays. Wiring: [docs/wiring.pdf](docs/wiring.pdf).
+**A simplification of [moOde](https://moodeaudio.org/): an internet radio that runs completely on its own, with a
+single button.** moOde is a full audio player with a big web interface; this project turns it into an appliance on a
+Raspberry Pi Zero 2 W. You plug it in, and it:
+
+- **starts by itself** after power-up and plays one chosen station (no phone, no web page, no menu);
+- is **operated with one button**: the push button of the rotary encoder toggles play / pause, and the encoder's knob
+  is the volume (moOde handles the knob itself);
+- **shows what is going on** on a small 128×64 OLED: the current title when the radio sends one, a large clock, and the
+  volume as a thin bar;
+- **switches an amplifier or speaker** on and off with a relay while music plays;
+- **looks after itself**: if the stream stops because the network dropped, it starts playing again once the
+  connection is back.
+
+moOde still does the audio (MPD, the DAC, the web UI for setup); `good_moode` is only the small Python program around it
+plus the tools to install it. Wiring: [docs/wiring.pdf](docs/wiring.pdf).
 
 ## Folders
 
@@ -31,7 +43,7 @@ and a relay that is on while music plays. Wiring: [docs/wiring.pdf](docs/wiring.
    installs the ready-script, then offers a reboot. Add `--reset-stations` to also delete moOde's default
    radio stations.
 4. **In moOde's web UI** (two manual steps, the scripts cannot do them):
-   - add the station `http://stream.radiomost.hu:8200/live.mp3`;
+   - add the station `http://stream.radiomost.hu:8200/mobil.aac`;
    - set up the rotary encoder (it is configured in moOde, not here): in *Configure → Peripherals → Rotary encoder*
      switch it **On** and enter the parameters `50 2 10 17 27`, then save (reboot if moOde asks).
 
@@ -53,7 +65,7 @@ Enable SSH on the Pi. The OLED needs I2C: `sudo raspi-config` → Interface Opti
 
 ### 3. Add the station manually
 
-In moOde's web UI: `http://stream.radiomost.hu:8200/live.mp3`
+In moOde's web UI: `http://stream.radiomost.hu:8200/mobil.aac`
 
 ### 4. Set up the rotary encoder in moOde
 
