@@ -38,6 +38,12 @@ moode_log () {
 setsid /home/fajtai/scripts/run_app.sh </dev/null >/dev/null 2>&1 &
 disown
 
+# Playback diagnostics logger (scripts/playback_logger.py). Run through bash so
+# it works even if run_logger.sh lost its executable bit when copied from
+# Windows; it writes its own files (playback_diag.log, playback_logger.err).
+setsid bash /home/fajtai/scripts/run_logger.sh </dev/null >/dev/null 2>&1 &
+disown
+
 exit 0
 
 #

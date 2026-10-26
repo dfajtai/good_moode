@@ -72,8 +72,20 @@ SHIFT_MAX = 3  # largest burn-in shift in pixels (shift cycles 0..SHIFT_MAX)
 
 POLL_INTERVAL = 0.2  # seconds between MPD status polls in the main loop
 
+# Each ICY metadata read opens a new connection to the radio stream and pulls
+# ~16 KB through the Pi's (weak) Wi-Fi, competing with MPD's own stream. Read it
+# rarely; the scroll animation and clock still tick every PlayingScreen interval.
+METADATA_INTERVAL = 5.0  # seconds between ICY metadata reads
+VOLUME_INTERVAL = 1.0  # seconds between volume reads (each one runs ``mpc``)
+
 
 # ================= HELPERS =================
+
+def log(*args, **kwargs) -> None:
+    """print() with a timestamp, for the service log (state_machine.log)."""
+    kwargs.setdefault("flush", True)
+    print(time.strftime("%Y-%m-%d %H:%M:%S"), *args, **kwargs)
+
 
 def extract_title(metadata: str) -> Optional[str]:
     """Extract the ``StreamTitle`` value from a raw ICY metadata block.
@@ -146,14 +158,16 @@ def toggle_play_pause() -> None:
             timeout=2,
         )
         if result.returncode != 0:
-            print("[ERROR] MPC toggle failed!")
+            log("[ERROR] MPC toggle failed!")
+        else:
+            log("[BUTTON] mpc toggle ok")
 
     except subprocess.TimeoutExpired:
-        print("[ERROR] MPC timeout!")
+        log("[ERROR] MPC timeout!")
     except FileNotFoundError:
-        print("[ERROR] mpc command not found!")
+        log("[ERROR] mpc command not found!")
     except Exception as e:
-        print(f"[ERROR] MPC exception: {e}")
+        log(f"[ERROR] MPC exception: {e}")
 
 
 def get_state() -> int:
@@ -194,15 +208,15 @@ def ensure_stream_playing(retries: int = 5, delay: float = 1.0) -> None:
                 # Queue is not empty: make sure it's actually playing.
                 status = subprocess.check_output(["mpc", "status"], text=True, timeout=2)
                 if "[playing]" in status:
-                    print("[STARTUP] Playback already active, nothing to do", flush=True)
+                    log("[STARTUP] Playback already active, nothing to do", flush=True)
                 else:
-                    print("[STARTUP] Queue present but not playing, starting playback", flush=True)
+                    log("[STARTUP] Queue present but not playing, starting playback", flush=True)
                     subprocess.run(["mpc", "play"], timeout=2)
                 return
 
             # Queue is empty: load the radio stream, same as a manual
             # "Play" from the web UI would do.
-            print(
+            log(
                 f"[STARTUP] Queue is empty (attempt {attempt}/{retries}), "
                 f"loading stream and starting playback",
                 flush=True,
@@ -213,7 +227,7 @@ def ensure_stream_playing(retries: int = 5, delay: float = 1.0) -> None:
             return
 
         except Exception as exc:
-            print(f"[STARTUP ERROR] {exc}", flush=True)
+            log(f"[STARTUP ERROR] {exc}", flush=True)
 
         time.sleep(delay)
 
@@ -244,18 +258,25 @@ class NowPlayingExtractHandler:
         interval: float = 2.0,
         coro: Optional[Callable[[Optional[str]], asyncio.Future]] = None,
         update_coro: Optional[Callable[[], asyncio.Future]] = None,
+        metadata_interval: float = METADATA_INTERVAL,
     ) -> None:
         """
         Args:
             source_url: URL of the audio stream to read ICY metadata from.
-            interval: Seconds between metadata polls.
+            interval: Seconds between loop ticks (``update_coro`` is called
+                on every tick).
             coro: Async callback invoked with the new title (or ``None`` if
-                unchanged) on every poll.
-            update_coro: Async callback invoked on every poll regardless of
+                unchanged) whenever the metadata is read.
+            update_coro: Async callback invoked on every tick regardless of
                 whether the title changed.
+            metadata_interval: Seconds between actual metadata reads; each
+                read opens a new connection to the stream, so this is much
+                longer than ``interval``.
         """
         self.source_url = source_url
         self.interval = interval
+        self.metadata_interval = metadata_interval
+        self._next_metadata = 0.0
         self.coro = coro
         self.update_coro = update_coro
 
@@ -279,6 +300,7 @@ class NowPlayingExtractHandler:
         worker thread via ``_read_metadata_async``, never directly on the
         event loop.
         """
+        r = None
         try:
             if not self._session:
                 self._session = requests.Session()
@@ -304,7 +326,10 @@ class NowPlayingExtractHandler:
                 meta = r.raw.read(meta_len)
                 return meta.decode("iso-8859-2", "ignore")
         except Exception as e:
-            print(f"[META ERROR] {e}")
+            log(f"[META ERROR] {e}")
+        finally:
+            if r is not None:
+                r.close()  # don't leave the stream connection open
         return ""
 
     async def _read_metadata_async(self) -> str:
@@ -322,37 +347,43 @@ class NowPlayingExtractHandler:
                 timeout=3.0
             )
         except asyncio.TimeoutError:
-            print("[META TIMEOUT] Metadata read took too long")
+            log("[META TIMEOUT] Metadata read took too long")
             return ""
         except Exception as e:
-            print(f"[META ERROR] {e}")
+            log(f"[META ERROR] {e}")
             return ""
 
     async def _loop(self) -> None:
-        """Main polling loop: reads metadata every ``self.interval`` seconds.
+        """Main loop: ticks every ``self.interval`` seconds, reads metadata when due.
+
+        ``update_coro`` runs on every tick (animation, volume, clock), but
+        the metadata itself is only read every ``self.metadata_interval``
+        seconds, starting with the first tick.
 
         Uses a fixed schedule (``next_t`` accumulates by ``interval`` each
-        iteration) rather than a plain ``sleep(interval)`` after each read,
-        so the polling cadence doesn't drift by the time the read itself
-        takes.
+        iteration) rather than a plain ``sleep(interval)`` after each tick,
+        so the cadence doesn't drift by the time the tick itself takes.
         """
         try:
+            self._next_metadata = 0.0
             next_t = time.monotonic() + self.interval
 
             while not self._stop_event.is_set():
-                meta = await self._read_metadata_async()
-                if meta:
-                    if meta != self._last_metadata:
-                        # Title (or other ICY field) changed since last poll.
-                        self._last_metadata = meta
-                        self.last_title = extract_title(meta) or ""
-                        if self.coro:
-                            await self.coro(self.last_title)
-                    else:
-                        # Same metadata as before; still notify the caller
-                        # with None so it can do periodic bookkeeping.
-                        if self.coro:
-                            await self.coro(None)
+                if time.monotonic() >= self._next_metadata:
+                    self._next_metadata = time.monotonic() + self.metadata_interval
+                    meta = await self._read_metadata_async()
+                    if meta:
+                        if meta != self._last_metadata:
+                            # Title (or other ICY field) changed since last read.
+                            self._last_metadata = meta
+                            self.last_title = extract_title(meta) or ""
+                            if self.coro:
+                                await self.coro(self.last_title)
+                        else:
+                            # Same metadata as before; still notify the caller
+                            # with None so it can do periodic bookkeeping.
+                            if self.coro:
+                                await self.coro(None)
 
                 if self.update_coro:
                     await self.update_coro()
@@ -450,7 +481,7 @@ class GPIOButton:
         # int values produced in _loop() below (see bug fix note above).
         initial: Value = self.request.get_value(self.line)
         self._last_state: int = initial.value if hasattr(initial, "value") else initial
-        print(f"[GPIO] initial state = {self._last_state}", flush=True)
+        log(f"[GPIO] initial state = {self._last_state}", flush=True)
 
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -472,7 +503,7 @@ class GPIOButton:
                 state: int = value.value if hasattr(value, "value") else value
 
                 if state != self._last_state:
-                    print(f"[GPIO] state change: {self._last_state} -> {state}", flush=True)
+                    log(f"[GPIO] state change: {self._last_state} -> {state}", flush=True)
 
                     # Falling edge (1 -> 0) = button press, since the line
                     # idles high (pull-up) and is pulled low on press.
@@ -480,14 +511,14 @@ class GPIOButton:
                         now = time.monotonic()
                         if now - self._last_press >= self.debounce:
                             self._last_press = now
-                            print("[GPIO] PRESS detected, calling on_press()", flush=True)
+                            log("[GPIO] PRESS detected, calling on_press()", flush=True)
                             if self.on_press:
                                 self.on_press()
 
                 self._last_state = state
 
             except Exception as exc:
-                print(f"[GPIO ERROR] {exc}", flush=True)
+                log(f"[GPIO ERROR] {exc}", flush=True)
 
             time.sleep(POLL_SLEEP)
 
@@ -536,16 +567,16 @@ class Relay:
                 )
             },
         )
-        print(f"[RELAY] GPIO{line} ready, relay off", flush=True)
+        log(f"[RELAY] GPIO{line} ready, relay off", flush=True)
 
     def _set(self, on: bool) -> None:
         """Drive the line; a failure is logged and retried on the next update."""
         try:
             self.request.set_value(self.line, Value.ACTIVE if on else Value.INACTIVE)
             self._on = on
-            print(f"[RELAY] {'ON' if on else 'OFF'}", flush=True)
+            log(f"[RELAY] {'ON' if on else 'OFF'}", flush=True)
         except Exception as exc:
-            print(f"[RELAY ERROR] {exc}", flush=True)
+            log(f"[RELAY ERROR] {exc}", flush=True)
 
     def update(self, playing: bool) -> None:
         """Feed the current playback state; call this on every state poll."""
@@ -696,8 +727,9 @@ class PlayingScreen(NowPlayingExtractHandler):
         Args:
             display: The luma.oled device to draw on.
             source_url: Stream URL to read ICY metadata from.
-            interval: Seconds between metadata polls (also the effective
-                animation tick rate for the scrolling text).
+            interval: Seconds between ticks, i.e. the animation rate of the
+                scrolling text (metadata is read much less often, see
+                ``METADATA_INTERVAL``).
             contrast: OLED contrast level (0-255) used while this screen
                 is active.
         """
@@ -721,6 +753,7 @@ class PlayingScreen(NowPlayingExtractHandler):
         self._current_title = ""
         self._no_data = True
         self._current_volume = get_volume_percent()
+        self._last_volume_read = time.monotonic()
 
         self._scroll_offset = 0
         self._scroll_speed = 2
@@ -911,12 +944,16 @@ class PlayingScreen(NowPlayingExtractHandler):
     async def _oled_update_coro(self) -> bool:
         """Periodic tick: advance the scroll animation and refresh volume/clock.
 
-        Called on every metadata poll cycle regardless of whether the
-        title changed, so the scrolling text and volume bar stay live even
-        while the current track's title is unchanged.
+        Called on every tick regardless of whether the title changed, so
+        the scrolling text and the volume bar stay live even while the
+        current track's title is unchanged. The volume is re-read at most
+        every ``VOLUME_INTERVAL`` seconds (each read runs ``mpc``).
         """
         self._scroll_offset += self._scroll_speed
-        self._current_volume = get_volume_percent()
+        now = time.monotonic()
+        if now - self._last_volume_read >= VOLUME_INTERVAL:
+            self._current_volume = get_volume_percent()
+            self._last_volume_read = now
         self._draw()
         return True
 
@@ -959,7 +996,7 @@ class MoodeStateMachine:
         try:
             self.relay = Relay(RELAY_PIN)
         except Exception as exc:
-            print(f"[RELAY ERROR] could not set up GPIO{RELAY_PIN}: {exc}", flush=True)
+            log(f"[RELAY ERROR] could not set up GPIO{RELAY_PIN}: {exc}", flush=True)
 
         # Establish the initial screen/state based on what MPD is actually
         # doing right now (rather than defaulting to idle and waiting for

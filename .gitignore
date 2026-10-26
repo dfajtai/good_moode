@@ -2,3 +2,6 @@
 .venv/
 __pycache__/
 scripts/stream_probe_history.jsonl
+pi_logs/
+playback_diag.log*
+playback_logger.err
