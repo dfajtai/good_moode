@@ -92,7 +92,7 @@ class Snapshot:
 class Report:
     """Result of ``StreamProbe.analyze``."""
 
-    verdict: str  # "HIBAS" | "MOZOG" | "JAVULT"
+    verdict: str  # "BROKEN" | "MOVING" | "IMPROVED"
     samples: int
     first_ts: str
     last_ts: str
@@ -105,23 +105,23 @@ class Report:
 
     def format(self) -> str:
         v = {
-            "HIBAS": "VÁLTOZATLAN / HIBÁS - csak a fix felirat látszik",
-            "MOZOG": "RÉSZLEGES - a 'previous' mozog, de a 'current' még felirat",
-            "JAVULT": "JAVULT - valódi cím érkezik",
+            "BROKEN": "UNCHANGED / BROKEN - only the fixed placeholder shows",
+            "MOVING": "PARTLY - 'previous' moves, but 'current' is still the placeholder",
+            "IMPROVED": "IMPROVED - a real title is arriving",
         }[self.verdict]
         lines = [
-            f"Eredmény: {v}",
-            f"Minták: {self.samples} db ({self.first_ts} .. {self.last_ts})",
+            f"Result: {v}",
+            f"Samples: {self.samples} ({self.first_ts} .. {self.last_ts})",
             "",
-            "Most játszik (utolsó minta):",
+            "Now playing (last sample):",
         ]
         for src, title in self.now_playing.items():
             mark = "OK " if src in self.real_now_playing else "-- "
             lines.append(f"  {mark}{src:<22} {title!r}")
-        lines.append(f"  (previous értékek eddig: {self.previous_values})")
+        lines.append(f"  (previous values so far: {self.previous_values})")
         lines.append("")
         lines.append(
-            "Különböző címek forrásonként: "
+            "Distinct titles per source: "
             + ", ".join(f"{s}={n}" for s, n in self.distinct_titles.items())
         )
         if self.hidden:
@@ -129,10 +129,10 @@ class Report:
             lines.append("REJTETT / EXTRA ADAT:")
             lines += [f"  {s}: {x}" for s, x in self.hidden.items()]
         else:
-            lines.append("Rejtett adat: nincs (nincs extra ICY mező, nincs ID3 tag)")
+            lines.append("Hidden data: none (no extra ICY field, no ID3 tag)")
         if self.errors:
             lines.append("")
-            lines.append("Hibás források az utolsó mintában:")
+            lines.append("Sources that failed in the last sample:")
             lines += [f"  {s}: {e}" for s, e in self.errors.items()]
         return "\n".join(lines)
 
@@ -165,7 +165,7 @@ class StreamProbe:
             r.raise_for_status()
             metaint = int(r.headers.get("icy-metaint", "0"))
             if not metaint:
-                return None, "nincs icy-metaint (a stream nem küld ICY adatot)"
+                return None, "no icy-metaint (the stream sends no ICY data)"
 
             audio = r.raw.read(metaint)
             extras = []
@@ -229,7 +229,7 @@ class StreamProbe:
             snap.titles["web:previous"] = song.get("previous") or None
             unknown = set(song) - {"current", "previous"}
             if unknown:
-                snap.extras["web:song.json"] = f"új mezők: {sorted(unknown)}"
+                snap.extras["web:song.json"] = f"new fields: {sorted(unknown)}"
         except Exception as exc:
             snap.errors["web:song.json"] = str(exc)
 
@@ -283,14 +283,14 @@ class StreamProbe:
         """Judge the situation from the (stored) history.
 
         Verdict:
-            JAVULT: some now-playing source carries a real title.
-            MOZOG:  no real title yet, but ``web:previous`` has changed, i.e.
+            IMPROVED: some now-playing source carries a real title.
+            MOVING:   no real title yet, but ``web:previous`` has changed, i.e.
                     the station's automation is moving again.
-            HIBAS:  only the placeholder, nothing moves.
+            BROKEN:   only the placeholder, nothing moves.
         """
         history = history if history is not None else self.load_history()
         if not history:
-            raise ValueError("nincs minta - futtasd előbb a collect()/--check-et")
+            raise ValueError("no samples - run collect() / --check first")
 
         last = history[-1]
         now_playing = {s: t for s, t in last.titles.items() if _is_now_playing(s)}
@@ -315,11 +315,11 @@ class StreamProbe:
             hidden.update(snap.extras)
 
         if real:
-            verdict = "JAVULT"
+            verdict = "IMPROVED"
         elif len(previous_values) > 1:
-            verdict = "MOZOG"
+            verdict = "MOVING"
         else:
-            verdict = "HIBAS"
+            verdict = "BROKEN"
 
         return Report(
             verdict=verdict,
@@ -347,7 +347,7 @@ class StreamProbe:
         while True:
             snap = self.collect()
             if self.save(snap):
-                print(f"[{snap.ts}] változás: {snap.titles}", flush=True)
+                print(f"[{snap.ts}] change: {snap.titles}", flush=True)
             if time.monotonic() + interval >= end:
                 break
             time.sleep(interval)
@@ -358,10 +358,10 @@ class StreamProbe:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--check", action="store_true", help="egy minta + elemzés (alapértelmezett)")
-    ap.add_argument("--watch", type=float, metavar="SEC", help="ennyi másodpercig gyűjt")
-    ap.add_argument("--interval", type=float, default=5.0, help="mintavétel gyakorisága (mp)")
-    ap.add_argument("--history", type=Path, default=HISTORY_FILE, help="JSONL előzményfájl")
+    ap.add_argument("--check", action="store_true", help="one sample + analysis (the default)")
+    ap.add_argument("--watch", type=float, metavar="SEC", help="collect for this many seconds")
+    ap.add_argument("--interval", type=float, default=5.0, help="sampling interval (seconds)")
+    ap.add_argument("--history", type=Path, default=HISTORY_FILE, help="JSONL history file")
     args = ap.parse_args()
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -370,7 +370,7 @@ def main() -> int:
     probe = StreamProbe(args.history)
     report = probe.watch(args.watch, args.interval) if args.watch else probe.check()
     print(report.format())
-    return {"JAVULT": 0, "MOZOG": 2, "HIBAS": 1}[report.verdict]
+    return {"IMPROVED": 0, "MOVING": 2, "BROKEN": 1}[report.verdict]
 
 
 if __name__ == "__main__":

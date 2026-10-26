@@ -9,7 +9,7 @@ session.headers.update({
     "User-Agent": "RadioMetadataExtractor/1.0",
 })
 
-print("Figyelem a StreamTitle valtozasait (Ctrl+C leallit)...")
+print("Watching the StreamTitle changes (Ctrl+C stops)...")
 last_seen = None
 
 while True:
@@ -17,7 +17,7 @@ while True:
         r = session.get(STREAM_URL, stream=True, timeout=5)
         metaint = int(r.headers.get("icy-metaint", "0"))
         if not metaint:
-            print("Nincs icy-metaint header, a stream nem kuld ICY metadatat.")
+            print("No icy-metaint header: the stream sends no ICY metadata.")
             break
 
         r.raw.read(metaint)

@@ -3,14 +3,14 @@ import requests
 import gpiozero
 from signal import pause
 
-# === SAJÁT PARANCSOK (MEGTARTVA) ===
+# === OWN COMMANDS (KEPT) ===
 VOLUME_BASE = "http://localhost/command/?cmd="
 LEFT_URL  = f"{VOLUME_BASE}set_volume dn 5"
 RIGHT_URL = f"{VOLUME_BASE}set_volume up 5"
 SHORT_URL = f"{VOLUME_BASE}toggle_play_pause"
 LONG_URL  = f"{VOLUME_BASE}set_volume 0"
 
-# === PINOK: S1=17, S2=27, KEY=22 ===
+# === PINS: S1=17, S2=27, KEY=22 ===
 encoder = gpiozero.RotaryEncoder(17, 27, wrap=False)
 button = gpiozero.Button(22, hold_time=1.0)
 
@@ -34,16 +34,16 @@ def short_press():
 def long_press():
     send_http(LONG_URL, "🔇 mute 0")
 
-# === ESEMÉNYKEZELŐK ===
+# === EVENT HANDLERS ===
 encoder.when_rotated = on_rotate
 button.when_pressed = short_press
 button.when_held = long_press
 
 print("🎛️  Rotary Encoder (17,27,22)")
-print("⬅️  set_volume dn 2")
-print("➡️  set_volume up 2") 
-print("▶️  toggle_play_pause (rövid)")
-print("🔇  set_volume 0 (1s hosszú)")
-print("\nTEKERJ/NYOMJ! Ctrl+C kilép")
+print("⬅️  set_volume dn 5")
+print("➡️  set_volume up 5")
+print("▶️  toggle_play_pause (short press)")
+print("🔇  set_volume 0 (1 s long press)")
+print("\nTURN / PRESS! Ctrl+C quits")
 
 pause()

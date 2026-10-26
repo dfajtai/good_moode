@@ -182,15 +182,15 @@ def contact_sheet(items: list[tuple[str, Image.Image]], cols: int = 2, pad: int 
 def standard_cases(p: Preview) -> list[tuple[str, str, Image.Image]]:
     """(file name, label, frame) for the standard set of cases."""
     return [
-        ("no-data", "Nincs adat (placeholder szűrve), hangerő 70%", p.playing(PLACEHOLDER)),
-        ("with-data", "Van adat: Adele - Hello, hangerő 35%", p.playing("Adele - Hello", volume=35)),
-        ("long-title-1", "Hosszú cím, görgetés 0. tick", p.playing(LONG_TITLE)),
-        ("long-title-2", "Hosszú cím, görgetés 15. tick", p.playing(LONG_TITLE, advance=15)),
-        ("shift-with-data", "Legrosszabb eltolás (+3,+3), van adat", p.playing("Adele - Hello", shift=3)),
-        ("shift-no-data", "Legrosszabb eltolás (+3,+3), nincs adat, 100%", p.playing(PLACEHOLDER, volume=100, shift=3)),
-        ("idle", "Idle: óra, kettőspont be", p.idle()),
-        ("idle-colon-off", "Idle: kettőspont ki (villogás)", p.idle(colon=False)),
-        ("idle-shift", "Idle: legrosszabb eltolás (+3,+3)", p.idle(shift=3)),
+        ("no-data", "No data (placeholder filtered), volume 70%", p.playing(PLACEHOLDER)),
+        ("with-data", "With data: Adele - Hello, volume 35%", p.playing("Adele - Hello", volume=35)),
+        ("long-title-1", "Long title, scroll tick 0", p.playing(LONG_TITLE)),
+        ("long-title-2", "Long title, scroll tick 15", p.playing(LONG_TITLE, advance=15)),
+        ("shift-with-data", "Worst burn-in shift (+3,+3), with data", p.playing("Adele - Hello", shift=3)),
+        ("shift-no-data", "Worst burn-in shift (+3,+3), no data, volume 100%", p.playing(PLACEHOLDER, volume=100, shift=3)),
+        ("idle", "Idle: clock, colon on", p.idle()),
+        ("idle-colon-off", "Idle: colon off (blink)", p.idle(colon=False)),
+        ("idle-shift", "Idle: worst burn-in shift (+3,+3)", p.idle(shift=3)),
     ]
 
 
@@ -233,7 +233,7 @@ def main() -> int:
     else:
         rgb(p.playing(args.title, args.volume, args.shift, args.advance)).save(args.out)
 
-    print(f"mentve: {args.out}")
+    print(f"saved: {args.out}")
     return 0
 
 

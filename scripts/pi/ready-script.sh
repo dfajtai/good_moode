@@ -38,11 +38,13 @@ moode_log () {
 setsid /home/fajtai/scripts/run_app.sh </dev/null >/dev/null 2>&1 &
 disown
 
-# Playback diagnostics logger (good_moode/playback_logger.py). Run through bash so
-# it works even if run_logger.sh lost its executable bit when copied from
-# Windows; it writes its own files (playback_diag.log, playback_logger.err).
-setsid bash /home/fajtai/scripts/run_logger.sh </dev/null >/dev/null 2>&1 &
-disown
+# Playback diagnostics logger (good_moode/playback_logger.py). It writes to the SD card (a HEALTH line
+# every minute, MPD events), so it only starts when the flag file logging.on exists (deploy.py --logging
+# creates it). Run through bash so it works even if run_logger.sh lost its executable bit.
+if [ -f /home/fajtai/scripts/logging.on ]; then
+    setsid bash /home/fajtai/scripts/run_logger.sh </dev/null >/dev/null 2>&1 &
+    disown
+fi
 
 exit 0
 

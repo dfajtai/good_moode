@@ -282,7 +282,7 @@ def summary(path: Path) -> None:
     marks = [i for i, ln in enumerate(lines)
              if " STATE " in ln or "SOURCE RECONNECT" in ln or "undervoltage_now" in ln]
     if not marks:
-        print("Nincs állapotváltás a naplóban.")
+        print("No state changes in the log.")
         return
     shown = set()
     for i in marks:
@@ -297,8 +297,8 @@ def summary(path: Path) -> None:
             print(lines[j])
             shown.add(j)
     print("-" * 78)
-    print(f"{sum(1 for ln in lines if 'STATE playing ->' in ln)} db 'playing -> ...' váltás, "
-          f"{sum(1 for ln in lines if 'SOURCE RECONNECT' in ln)} db forrás-újracsatlakozás.")
+    print(f"{sum(1 for ln in lines if 'STATE playing ->' in ln)} 'playing -> ...' changes, "
+          f"{sum(1 for ln in lines if 'SOURCE RECONNECT' in ln)} source reconnects.")
 
 
 def main() -> int:

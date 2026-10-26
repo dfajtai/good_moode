@@ -16,7 +16,7 @@ STREAM_URL = "http://stream.radiomost.hu:8200/live.mp3"
 MOODE_URL  = "http://localhost/command/?cmd=get_volume"
 
 
-# ------------------ segédfüggvények ------------------
+# ------------------ helper functions ------------------
 
 def extract_title(metadata: str) -> Optional[str]:
     m = re.search(r"StreamTitle='([^';]+)", metadata)
@@ -136,7 +136,7 @@ class OLEDNowPlayingWithVolumeHandler(NowPlayingExtractHandler):
         self.serial = i2c(port=1, address=0x3C)
         self.device = sh1106(self.serial, width=128, height=64)
 
-        # nagyobb betűk
+        # larger fonts
         self.font_big = ImageFont.truetype(FONT_PATH, 15)
         self.font_small = ImageFont.truetype(FONT_PATH, 12)
 
@@ -179,21 +179,21 @@ class OLEDNowPlayingWithVolumeHandler(NowPlayingExtractHandler):
 
         with canvas(self.device) as draw:
 
-            # 1. sor – előadó (scroll)
+            # line 1 - artist (scrolling)
             if artist:
                 self._scroll_text(draw, artist, 0, self._scroll_offset_artist)
 
-            # 2. sor – szám címe (scroll)
+            # line 2 - song title (scrolling)
             if song:
                 self._scroll_text(draw, song, 18, self._scroll_offset_song)
 
-            # 3. sor – VOL + kisebb sáv
+            # line 3 - VOL + a smaller bar
             draw.text((0, 36), "VOL", fill="white", font=self.font_small)
 
             bar_w = int(70 * vol / 100)
             draw.rectangle((30, 40, 30 + bar_w, 43), fill="white")
 
-            # 4. sor – dátum + idő
+            # line 4 - date + time
             draw.text((0, 50), now, fill="white", font=self.font_small)
 
 
@@ -213,7 +213,7 @@ class OLEDNowPlayingWithVolumeHandler(NowPlayingExtractHandler):
         return True
 
 
-# ------------------ futtatás ------------------
+# ------------------ run ------------------
 
 if __name__ == "__main__":
     h = OLEDNowPlayingWithVolumeHandler(STREAM_URL, interval=0.2)
