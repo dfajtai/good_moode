@@ -1,16 +1,33 @@
 [project]
 name = "good-moode"
 version = "0.1.0"
-description = ""
+description = "OLED display, play/pause button and relay for a moOde audio player on a Raspberry Pi Zero 2 W"
 authors = [
     {name = "Daniel Fajtai",email = "daniel.fajtai@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4"
 dependencies = [
-    "requests (>=2.32.5,<3.0.0)"
+    "requests (>=2.32.5,<3.0.0)",
+    "pillow (>=12.0.0,<13.0.0)"
 ]
 
+[project.optional-dependencies]
+# hardware libraries, needed on the Pi only
+pi = [
+    "luma.oled (>=3.14.0,<4.0.0)",
+    "gpiod (>=2.4.0,<3.0.0)"
+]
+# tools in scripts/local (deploy, download logs, reboot over SSH)
+local = [
+    "paramiko (>=3.5.0,<5.0.0)"
+]
+
+[project.scripts]
+good-moode = "good_moode.state_machine:main"
+
+[tool.poetry]
+packages = [{include = "good_moode"}]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

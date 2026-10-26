@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
-"""Render the OLED screens of scripts/moode_state_machine.py to PNG/GIF.
+"""Render the OLED screens of the good_moode package to PNG/GIF.
 
 Debug preview without any hardware: the real ``PlayingScreen`` / ``IdleScreen``
 classes are loaded and draw onto an in-memory 128x64 canvas instead of the
 SH1106, so the preview always matches what the Pi would draw. Only needs
-Pillow; missing hardware libraries (luma, gpiod, requests) are stubbed.
+Pillow; missing hardware libraries (luma, requests) are stubbed.
 
 Examples (run from the repo root):
 
-    python test/oled_preview.py --title "Adele - Hello" --volume 35
-    python test/oled_preview.py                       # no track info
-    python test/oled_preview.py --title "Very long artist - Very long title" --frames 40 -o scroll.gif
-    python test/oled_preview.py --title "Adele - Hello" --shift 3 --now "2026-10-25 15:07"
-    python test/oled_preview.py --screen idle --shift 3 --no-colon
-    python test/oled_preview.py --export docs/oled --now "2026-10-25 15:07"   # all cases as files
-    python test/oled_preview.py --sheet -o overview.png   # standard set of cases
+    python experiment/oled_preview.py --title "Adele - Hello" --volume 35
+    python experiment/oled_preview.py                       # no track info
+    python experiment/oled_preview.py --title "Very long artist - Very long title" --frames 40 -o scroll.gif
+    python experiment/oled_preview.py --title "Adele - Hello" --shift 3 --now "2026-10-25 15:07"
+    python experiment/oled_preview.py --screen idle --shift 3 --no-colon
+    python experiment/oled_preview.py --export docs/oled --now "2026-10-25 15:07"   # all cases as files
+    python experiment/oled_preview.py --sheet -o overview.png   # standard set of cases
 """
 
 import argparse
 import asyncio
 import importlib
-import importlib.util
 import sys
 import time
 import types
@@ -31,18 +30,15 @@ from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-MODULE_PATH = ROOT / "scripts" / "moode_state_machine.py"
-LABEL_FONT = ROOT / "scripts" / "fonts" / "NotoSans-Medium.ttf"
+LABEL_FONT = ROOT / "good_moode" / "fonts" / "NotoSans-Medium.ttf"
 
 PLACEHOLDER = "Telefon-SMS-Viber_-_06703232355"
 LONG_TITLE = "Tisztelet_-_Hosszú előadó neve és nagyon hosszú dal címe"
 
-# Hardware-only names the state machine imports; stubbed when the real
+# Hardware-only names the screens import; stubbed when the real
 # library is not installed (i.e. on a normal PC).
 _STUB_ATTRS = {
     "requests": {"Session": object},
-    "gpiod": {},
-    "gpiod.line": {"Direction": object, "Bias": object, "Value": object},
     "luma": {},
     "luma.core": {},
     "luma.core.interface": {},
@@ -95,9 +91,10 @@ class Preview:
 
     def __init__(self, now: Optional[str] = None) -> None:
         _stub_missing_modules()
-        spec = importlib.util.spec_from_file_location("moode_state_machine", MODULE_PATH)
-        self.m = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.m)
+        sys.path.insert(0, str(ROOT))
+        from good_moode import screens  # cheap import: no gpiod / state machine needed
+
+        self.m = screens
 
         self.volume = 70
         self.frame: Optional[Image.Image] = None

@@ -29,7 +29,7 @@ moode_log () {
 #exit 0
 
 # FIX (2026-09): "cmd &" alone is not enough — the child inherits worker.php's
-# stdin/stdout/stderr file descriptors, and since run_app.sh -> moode_state_machine.py
+# stdin/stdout/stderr file descriptors, and since run_app.sh -> python -m good_moode
 # runs forever, worker.php never sees EOF on that pipe and blocks its
 # post-startup sequence (auto-play, polling loop) until the child is killed.
 # setsid fully detaches into a new session (also immune to SIGHUP), and
@@ -38,7 +38,7 @@ moode_log () {
 setsid /home/fajtai/scripts/run_app.sh </dev/null >/dev/null 2>&1 &
 disown
 
-# Playback diagnostics logger (scripts/playback_logger.py). Run through bash so
+# Playback diagnostics logger (good_moode/playback_logger.py). Run through bash so
 # it works even if run_logger.sh lost its executable bit when copied from
 # Windows; it writes its own files (playback_diag.log, playback_logger.err).
 setsid bash /home/fajtai/scripts/run_logger.sh </dev/null >/dev/null 2>&1 &

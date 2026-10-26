@@ -1,5 +1,5 @@
 #!/bin/bash
-# Starts the playback diagnostics logger (see playback_logger.py).
+# Starts the playback diagnostics logger (see good_moode/playback_logger.py).
 #
 # Files in /home/fajtai/scripts:
 #   playback_diag.log     the logger's own log (rotated)
@@ -9,7 +9,7 @@
 
 DIR="/home/fajtai/scripts"
 VENV="$DIR/.venv"
-APP="$DIR/playback_logger.py"
+APP="$DIR/good_moode/playback_logger.py"
 ERR="$DIR/playback_logger.err"
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -26,4 +26,4 @@ if [ ! -f "$APP" ]; then
 fi
 
 source "$VENV/bin/activate"
-exec python3 -u "$APP" 2>> "$ERR"
+cd "$DIR" && exec python3 -u -m good_moode.playback_logger 2>> "$ERR"

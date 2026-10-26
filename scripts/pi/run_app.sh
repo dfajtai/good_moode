@@ -2,7 +2,8 @@
 
 LOG="/var/log/state_machine.log"
 VENV="/home/fajtai/scripts/.venv"
-APP="/home/fajtai/scripts/moode_state_machine.py"
+DIR="/home/fajtai/scripts"
+APP="$DIR/good_moode/__main__.py"   # the package is started with: python3 -m good_moode
 
 echo "==============================" >> "$LOG"
 echo "$(date) script started" >> "$LOG"
@@ -38,6 +39,6 @@ echo "$(date) starting python app" >> "$LOG"
 # python futtatás (stdout+stderr logba)
 # -u: unbuffered stdout/stderr, hogy a print()-ek azonnal a logba kerüljenek,
 # ne csak a buffer megteléskor/process leállásakor
-python3 -u "$APP" >> "$LOG" 2>&1
+cd "$DIR" && python3 -u -m good_moode >> "$LOG" 2>&1
 
 echo "$(date) python exited with code $?" >> "$LOG"

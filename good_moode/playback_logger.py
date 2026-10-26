@@ -24,9 +24,9 @@ What is logged:
 
 Usage:
 
-    python playback_logger.py                  # run in the foreground
-    setsid nohup python playback_logger.py >/dev/null 2>&1 &   # run detached from the terminal
-    python playback_logger.py --summary FILE   # state changes and what preceded them
+    python -m good_moode.playback_logger       # run in the foreground (from ~/scripts)
+    setsid nohup python -m good_moode.playback_logger >/dev/null 2>&1 &   # detached from the terminal
+    python -m good_moode.playback_logger --summary FILE   # state changes and what preceded them
 
 Only needs ``requests``; external commands used when present: mpc, vcgencmd,
 iw, journalctl.
@@ -47,7 +47,7 @@ from typing import Optional
 import requests
 
 BASE_DIR = Path(__file__).resolve().parent
-LOG_FILE = BASE_DIR / "playback_diag.log"
+LOG_FILE = BASE_DIR.parent / "playback_diag.log"  # next to the package, i.e. ~/scripts
 
 ICECAST_STATUS_URL = "http://stream.radiomost.hu:8200/status-json.xsl"
 MOUNT = "live.mp3"

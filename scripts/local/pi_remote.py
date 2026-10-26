@@ -10,11 +10,11 @@ Connection details are read from the .env file in the repo root:
 
 Usage (from the repo root):
 
-    python tools/pi_remote.py                 # interactive shell, type "help"
-    python tools/pi_remote.py status          # run one command and exit
-    python tools/pi_remote.py log             # download the logs into ./pi_logs/<time>/
-    python tools/pi_remote.py tail diag 100
-    python tools/pi_remote.py shutdown
+    python scripts/local/pi_remote.py         # interactive shell, type "help"
+    python scripts/local/pi_remote.py status  # run one command and exit
+    python scripts/local/pi_remote.py log     # download the logs into ./pi_logs/<time>/
+    python scripts/local/pi_remote.py tail diag 100
+    python scripts/local/pi_remote.py shutdown
 
 Commands:
 
@@ -24,7 +24,7 @@ Commands:
     tail [name|path] [n]   last n lines of a log; names: diag, state, err, moode
     get <remote> [local]   download a file
     put <local> <remote>   upload a file
-    deploy                 upload scripts/*.py|sh to ~/scripts, chmod +x, and install
+    deploy                 upload good_moode/ and scripts/pi/*.sh to ~/scripts, chmod +x, install
                            ready-script.sh into moOde (like the README's last step)
     restart                restart the OLED program and the logger on the Pi (as root)
     shutdown | reboot      power off / reboot the Pi (asks for confirmation)
@@ -35,6 +35,7 @@ The first connection stores the Pi's host key in ~/.good_moode_known_hosts;
 later connections fail loudly if the key changes. Needs: pip install paramiko
 """
 
+import io
 import posixpath
 import shlex
 import sys
@@ -47,12 +48,11 @@ try:
 except ImportError:
     sys.exit("Hiányzik a paramiko: pip install paramiko")
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]  # repo root (this file is scripts/local/pi_remote.py)
 ENV_FILE = ROOT / ".env"
 KNOWN_HOSTS = Path.home() / ".good_moode_known_hosts"
 LOG_DIR = ROOT / "pi_logs"
 
-DEPLOY_FILES = ("moode_state_machine.py", "playback_logger.py", "run_app.sh", "run_logger.sh", "ready-script.sh")
 MOODE_READY_SCRIPT = "/var/local/www/commandw/ready-script.sh"
 
 STATUS_COMMAND = r"""
@@ -61,7 +61,7 @@ echo "== homerseklet";     vcgencmd measure_temp 2>/dev/null
 echo "== feszultseg/throttle (0x0 = ok)"; vcgencmd get_throttled 2>/dev/null
 echo "== wifi";            iw dev wlan0 link 2>/dev/null | grep -E 'signal|tx bitrate'
 echo "== mpc";             mpc status 2>&1
-echo "== futo programok";  pgrep -af 'moode_state_machine|playback_logger' || echo "(nincs)"
+echo "== futo programok";  pgrep -af '[g]ood_moode|[m]oode_state_machine' || echo "(nincs)"  # [x] trick: don't match this shell itself
 """
 
 
@@ -163,7 +163,11 @@ class PiRemote:
     def put(self, local: Path, remote: str) -> bool:
         sftp = self.client.open_sftp()
         try:
-            sftp.put(str(local), remote)
+            if local.suffix == ".sh":
+                # shell scripts must have LF endings on the Pi, whatever git did on Windows
+                sftp.putfo(io.BytesIO(local.read_bytes().replace(b"\r\n", b"\n")), remote)
+            else:
+                sftp.put(str(local), remote)
         except OSError as exc:
             print(f"  hiba: {local} -> {remote} ({exc})")
             return False
@@ -200,13 +204,15 @@ class PiRemote:
         return target
 
     def deploy(self) -> None:
+        """Upload the package and the Pi's shell scripts, then install moOde's ready-script."""
         print(f"Feltöltés ide: {self.scripts}")
-        for name in DEPLOY_FILES:
-            src = ROOT / "scripts" / name
-            if not src.exists():
-                print(f"  hiányzik: {src}")
-                continue
-            self.put(src, f"{self.scripts}/{name}")
+        package = sorted(p for p in (ROOT / "good_moode").rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+        remote_dirs = sorted({posixpath.dirname(f"{self.scripts}/{p.relative_to(ROOT).as_posix()}") for p in package})
+        self.run("mkdir -p " + " ".join(shlex.quote(d) for d in remote_dirs))
+        for src in package:
+            self.put(src, f"{self.scripts}/{src.relative_to(ROOT).as_posix()}")
+        for src in sorted(p for p in (ROOT / "scripts" / "pi").iterdir() if p.suffix in (".sh", ".txt")):
+            self.put(src, f"{self.scripts}/{src.name}")
         self.show(f"chmod u+x {self.scripts}/*.sh && echo '  chmod u+x kész'")
         code = self.show(f"cp {self.scripts}/ready-script.sh {MOODE_READY_SCRIPT} && echo '  ready-script.sh telepítve'", sudo=True)
         if code:
@@ -216,11 +222,11 @@ class PiRemote:
     def restart(self) -> None:
         """Restart the OLED program and the logger (root, like moOde's ready-script does)."""
         command = (
-            "pkill -f moode_state_machine.py; pkill -f playback_logger.py; sleep 1; "
+            "pkill -f '[m]oode_state_machine.py'; pkill -f '[g]ood_moode'; sleep 1; "  # [x]: never match our own bash -c
             f"cd {self.scripts}; "
             "setsid bash run_app.sh </dev/null >/dev/null 2>&1 & "
             "setsid bash run_logger.sh </dev/null >/dev/null 2>&1 & "
-            "sleep 2; pgrep -af 'moode_state_machine|playback_logger' || echo '(nem indult el)'"
+            "sleep 2; pgrep -af '[g]ood_moode' || echo '(nem indult el)'"
         )
         self.show(command, sudo=True, timeout=30)
 
@@ -276,7 +282,7 @@ class PiRemote:
 def connect_from_env() -> PiRemote:
     """Connect to the Pi using the .env settings; exits with a readable message on failure.
 
-    Also used by the ready-made scenarios in ``local_script/``.
+    Also used by the ready-made scenarios next to this file (deploy.py, download.py, reboot.py).
     """
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):

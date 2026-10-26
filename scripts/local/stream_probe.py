@@ -21,7 +21,7 @@ Sources sampled on every run:
 It also looks for info hidden elsewhere: extra ICY fields (e.g. ``StreamUrl``)
 and in-band ID3 tags in the audio data.
 
-Only needs ``requests``; deliberately does not import moode_state_machine
+Only needs ``requests``; deliberately does not import good_moode
 (which pulls in GPIO / OLED libraries that only exist on the Pi).
 """
 
@@ -44,7 +44,7 @@ MOUNTS = ("live.mp3", "mobil.aac")
 SONG_JSON_URL = "https://kaposvarmost.hu/radio/cache/song.json"
 SONG_API_URL = "https://kaposvarmost.hu/radio/api/get_song.php"  # used by the site's radio box
 
-PLACEHOLDER_PREFIX = "telefon-sms-viber"  # keep in sync with moode_state_machine.py
+PLACEHOLDER_PREFIX = "telefon-sms-viber"  # keep in sync with good_moode/config.py
 HISTORY_FILE = Path(__file__).resolve().parent / "stream_probe_history.jsonl"
 
 HTTP_TIMEOUT = 8  # seconds per request
