@@ -33,6 +33,9 @@ Commands:
     deploy [--logging]     upload good_moode/ and scripts/pi/*.sh to ~/scripts, chmod +x, install
                            ready-script.sh into moOde (for updates)
     restart                restart the OLED program on the Pi (as root; the logger too if logging is on)
+    play | pause | toggle | stop     remote control of the playback (through mpc on the Pi)
+    mute | unmute          mute sets the volume to 0 and remembers it; unmute restores it
+    volume <N|+N|-N>       set the volume to N (0-100), or change it by +N / -N
     shutdown | reboot      power off / reboot the Pi (asks for confirmation)
     run <command>          run any command;  sudo <command>  runs it as root
     help | exit
@@ -47,6 +50,7 @@ Needs: pip install paramiko
 
 import io
 import posixpath
+import re
 import shlex
 import sys
 import time
@@ -74,6 +78,14 @@ MOODE_READY_SCRIPT = "/var/local/www/commandw/ready-script.sh"
 
 # The logging switch on the Pi: run_app.sh and ready-script.sh test for this file in ~/scripts.
 LOGGING_FLAG = "logging.on"
+
+# `mute` remembers the volume here so that `unmute` can restore it. It is in RAM (/dev/shm) on purpose: no write
+# to the SD card, and after a reboot the file is gone and unmute falls back to DEFAULT_UNMUTE_VOLUME.
+MUTE_FILE = "/dev/shm/good_moode_volume_before_mute"
+DEFAULT_UNMUTE_VOLUME = 30
+
+# The playback actions of `control` (the Pi-side shell part of mute / unmute / volume is built in ``control``).
+PLAYBACK_ACTIONS = ("play", "pause", "toggle", "stop", "mute", "unmute", "volume")
 
 # One shell snippet for the `status` command. Note the [x] trick in the pgrep pattern: a pattern like
 # '[g]ood_moode' matches the text "good_moode" but not its own spelling, so pgrep does not report the
@@ -386,6 +398,38 @@ class PiRemote:
         )
         self.show(command, sudo=True, timeout=30)
 
+    def control(self, action: str, argument: Optional[str] = None) -> bool:
+        """Remote-control the playback on the Pi with ``mpc``, then show the resulting status.
+
+        Actions: play, pause, toggle, stop, mute, unmute, and ``volume`` with an argument: ``40`` (set, 0-100),
+        ``+5`` or ``-5`` (change). ``mpc`` talks to MPD directly, which is fast and reliable, unlike moOde's
+        PHP command interface. moOde's own volume display may lag behind a change made this way; the OLED
+        follows MPD and is right at once. A stop is a real stop: the relay drops and nothing resumes the
+        playback automatically (only an MPD *error* is recovered). Returns False (nothing sent) if the action
+        or its argument is not valid.
+        """
+        if action not in PLAYBACK_ACTIONS:
+            print(f"Unknown action: {action}. Use one of: {', '.join(PLAYBACK_ACTIONS)}")
+            return False
+        if action == "volume":
+            text = (argument or "").strip()
+            if not re.fullmatch(r"[+-]?\d{1,3}", text):  # exactly: 40, +5 or -5 - nothing else reaches the shell
+                print("volume needs a number: volume 40 (set 0-100), volume +5 or volume -5 (change)")
+                return False
+            # an absolute volume is clamped to 0-100; a relative one is passed on as it is
+            shell = f"mpc volume {min(int(text), 100) if text[:1] not in ('+', '-') else text}"
+        elif action == "mute":
+            # remember the current volume (if it is above 0) in RAM, then set 0
+            shell = ('v=$(mpc status | grep -o "volume: *[0-9]*" | grep -o "[0-9]*"); '
+                     f'if [ "${{v:-0}}" -gt 0 ]; then echo "$v" > {MUTE_FILE}; fi; mpc volume 0')
+        elif action == "unmute":
+            shell = (f'v=$(cat {MUTE_FILE} 2>/dev/null || echo {DEFAULT_UNMUTE_VOLUME}); '
+                     f'mpc volume "$v" && rm -f {MUTE_FILE}')
+        else:
+            shell = f"mpc {action}"
+        code = self.show(shell + "; mpc status")
+        return code == 0
+
     def clear_logs(self, include_system: bool = False, assume_yes: bool = False) -> None:
         """Delete the logs on the Pi: ours, and with ``include_system`` moOde's log and the journals too.
 
@@ -446,6 +490,8 @@ class PiRemote:
             self.download_logs()
         elif cmd == "clear":
             self.clear_logs("--all" in args, assume_yes)
+        elif cmd in PLAYBACK_ACTIONS:
+            self.control(cmd, args[0] if args else None)
         elif cmd == "tail":
             self.tail(args[0] if args else "diag", int(args[1]) if len(args) > 1 else 40)
         elif cmd == "get" and args:

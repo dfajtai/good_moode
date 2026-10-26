@@ -123,6 +123,8 @@ After a reboot moOde runs it, and it starts the program (`python -m good_moode`)
     python scripts/local/download.py    # download the logs into pi_logs/
     python scripts/local/clear_logs.py  # delete the logs on the Pi (asks first; --all also moOde's log and the journals)
     python scripts/local/reboot.py      # reboot the Pi
+    python scripts/local/remote.py play|pause|stop|mute|unmute      # remote control of the playback
+    python scripts/local/remote.py volume 40                        # set the volume (or +5 / -5)
     python scripts/local/pi_remote.py   # interactive shell: status, tail, restart, shutdown, run, help
 
 ## Development
