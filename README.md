@@ -30,7 +30,10 @@ and a relay that is on while music plays. Wiring: [docs/wiring.pdf](docs/wiring.
    It enables I2C, copies the files, creates the venv, installs the libraries and
    installs the ready-script, then offers a reboot. Add `--reset-stations` to also delete moOde's default
    radio stations.
-4. **In moOde's web UI:** add the station `http://stream.radiomost.hu:8200/live.mp3`.
+4. **In moOde's web UI** (two manual steps, the scripts cannot do them):
+   - add the station `http://stream.radiomost.hu:8200/live.mp3`;
+   - set up the rotary encoder (it is configured in moOde, not here): in *Configure → Peripherals → Rotary encoder*
+     switch it **On** and enter the parameters `50 2 10 17 27`, then save (reboot if moOde asks).
 
 ## The same steps by hand
 
@@ -52,7 +55,19 @@ Enable SSH on the Pi. The OLED needs I2C: `sudo raspi-config` → Interface Opti
 
 In moOde's web UI: `http://stream.radiomost.hu:8200/live.mp3`
 
-### 4. Copy the files under home
+### 4. Set up the rotary encoder in moOde
+
+The volume knob is handled by moOde itself, so the encoder has to be configured in moOde's web UI (menu names can differ a little
+between moOde versions): *Configure → Peripherals → Rotary encoder*
+
+- switch the rotary encoder **On**;
+- parameters: `50 2 10 17 27` (three tuning values, then the two GPIO pins: S1 = GPIO17, S2 = GPIO27);
+- save, and reboot if moOde asks for it.
+
+The encoder's push button (KEY, GPIO22) is the play/pause button of `good_moode`: do not assign GPIO22 to the encoder's switch in
+moOde, otherwise one press would toggle twice. The OLED only shows the volume that moOde sets.
+
+### 5. Copy the files under home
 
 Copy the `good_moode/` folder and the contents of `scripts/pi/` to `~/scripts`, then:
 
@@ -61,14 +76,14 @@ Copy the `good_moode/` folder and the contents of `scripts/pi/` to `~/scripts`, 
     chmod u+x run_app.sh
     chmod u+x run_logger.sh
 
-### 5. Create the venv
+### 6. Create the venv
 
     cd ~/scripts
     python3 -m venv --clear .venv
     source .venv/bin/activate
     pip install -r requirements.txt
 
-### 6. Logging (off by default)
+### 7. Logging (off by default)
 
 Logging writes to the SD card, so it is off: the program's output goes to `/dev/null` and the diagnostics logger does
 not start. The switch is the flag file `~/scripts/logging.on`, which `run_app.sh` and `ready-script.sh` test for:
@@ -79,13 +94,13 @@ not start. The switch is the flag file `~/scripts/logging.on`, which `run_app.sh
 
 (`deploy.py --logging` does this for you; a deploy without `--logging` switches it off again.)
 
-### 7. Overwrite ready-script.sh
+### 8. Overwrite ready-script.sh
 
     sudo cp ~/scripts/ready-script.sh /var/local/www/commandw/ready-script.sh
 
 After a reboot moOde runs it, and it starts the program (`python -m good_moode`).
 
-### 8. Try it by hand
+### 9. Try it by hand
 
     cd ~/scripts && source .venv/bin/activate && python -m good_moode
 

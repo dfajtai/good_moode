@@ -7,8 +7,9 @@
 
 Enables I2C, creates ~/scripts and its virtual environment, uploads the files, installs
 the Python libraries and installs moOde's ready-script (which
-starts the program after every boot). It can be repeated safely. Adding the radio
-station stays manual, in moOde's web UI.
+starts the program after every boot). It can be repeated safely. Two steps stay manual, in moOde's web UI:
+adding the radio station, and switching the rotary encoder on (Configure -> Peripherals -> Rotary encoder,
+parameters 50 2 10 17 27).
 """
 
 import sys

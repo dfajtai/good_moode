@@ -394,7 +394,7 @@ def page4(c):
         ("What the code states", [
             "OLED: luma.oled sh1106, i2c(port=1, address=0x3C), 128×64 (good_moode/config.py: I2C_ADDR, state_machine.py). Button: BUTTON_PIN = 22 (BCM), /dev/gpiochip0, "
             "internal pull-up, a press pulls the pin to GND; a press runs mpc toggle.",
-            "Rotary encoder: the volume is controlled by moOde's own rotary encoder support (S1 = GPIO17, S2 = GPIO27 are the pins set there). good_moode only shows the volume: it follows MPD's mixer events, so the bar changes as soon as moOde changes the volume.",
+            "Rotary encoder: the volume is controlled by moOde's own rotary encoder support (S1 = GPIO17, S2 = GPIO27 are the pins set there; in moOde: Configure > Peripherals > Rotary encoder = On, parameters 50 2 10 17 27). good_moode only shows the volume: it follows MPD's mixer events, so the bar changes as soon as moOde changes the volume.",
             "Relay (good_moode/config.py: RELAY_PIN = 26, good_moode/hardware.py: Relay): GPIO26 high while playing, low otherwise; it drops after 2 s of continuous idle "
             "(RELAY_OFF_DELAY) so a short pause or an mpc error does not click it, and it is switched off on shutdown.",
         ]),

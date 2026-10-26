@@ -360,8 +360,9 @@ class PiRemote:
         else:
             print("  skipped (use --reset-stations to do it)")
 
-        print("\nDone. One manual step is left: add the station in moOde's web UI:")
-        print("  http://stream.radiomost.hu:8200/live.mp3")
+        print("\nDone. Two manual steps are left, in moOde's web UI:")
+        print("  1. add the station: http://stream.radiomost.hu:8200/live.mp3")
+        print("  2. Configure -> Peripherals -> Rotary encoder: switch it On, parameters: 50 2 10 17 27")
         if not assume_yes and confirmed("Reboot the Pi now (needed for I2C and the automatic start)? [y/N] "):
             self.power("reboot", assume_yes=True)
         else:
