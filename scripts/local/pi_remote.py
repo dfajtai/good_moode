@@ -18,7 +18,8 @@ Usage (from the repo root):
 
 Commands:
 
-    status                 uptime, temperature, throttling, Wi-Fi, mpc status, our processes
+    status [--raw]         grouped table like top: problems, playback, program/relay, network (pings, DNS,
+                           Wi-Fi link, packet counts), system, moOde / MPD; --raw adds the raw output
     log                    download the logs (playback_diag.log*, playback_logger.err,
                            state_machine.log, moode.log, mpd and kernel journals)
     tail [name|path] [n]   last n lines of a log; names: diag, state, err, moode
@@ -57,6 +58,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from status_view import STATUS_COMMAND, parse_status, render_status  # same folder
+
 try:
     import paramiko
 except ImportError:
@@ -86,20 +89,6 @@ DEFAULT_UNMUTE_VOLUME = 30
 
 # The playback actions of `control` (the Pi-side shell part of mute / unmute / volume is built in ``control``).
 PLAYBACK_ACTIONS = ("play", "pause", "toggle", "stop", "mute", "unmute", "volume")
-
-# One shell snippet for the `status` command. Note the [x] trick in the pgrep pattern: a pattern like
-# '[g]ood_moode' matches the text "good_moode" but not its own spelling, so pgrep does not report the
-# shell that is running this very snippet.
-STATUS_COMMAND = r"""
-echo "== uptime / load";   uptime
-echo "== temperature";     vcgencmd measure_temp 2>/dev/null
-echo "== power / throttling (0x0 = ok)"; vcgencmd get_throttled 2>/dev/null
-echo "== wifi";            iw dev wlan0 link 2>/dev/null | grep -E 'signal|tx bitrate'
-echo "== mpc";             mpc status 2>&1
-echo "== our processes";   pgrep -af '[g]ood_moode|[m]oode_state_machine' || echo "(none)"
-echo "== logging";         [ -f ~/scripts/logging.on ] && echo "on" || echo "off"
-"""
-
 
 def load_env(path: Path = ENV_FILE) -> dict[str, str]:
     """Parse simple KEY=VALUE lines (comments and blank lines ignored) and check the required keys.
@@ -188,9 +177,31 @@ class PiRemote:
 
     # ---- commands ----
 
-    def status(self) -> None:
-        """Print uptime, temperature, power/throttling flags, Wi-Fi, mpc status and our processes."""
-        self.show(STATUS_COMMAND)
+    def status(self, raw: bool = False) -> bool:
+        """Print the status table (see status_view.py) and return True if all is well (no problem found).
+
+        One shell snippet runs on the Pi (about 3 seconds: the pings run in parallel); its output is read into the
+        PLAYBACK / PROGRAM / NETWORK / SYSTEM / MOODE tables. ``raw=True`` also prints the snippet's raw output
+        under the table. The stream's host and port, the relay pin and the placeholder title come from the
+        program's own settings in good_moode/config.py.
+        """
+        sys.path.insert(0, str(ROOT))
+        try:
+            from urllib.parse import urlparse
+
+            from good_moode.config import PLACEHOLDER_TITLE_PREFIX, RELAY_PIN, STREAM_URL
+            url = urlparse(STREAM_URL)
+            host, port, pin = url.hostname or "stream.radiomost.hu", url.port or 80, RELAY_PIN
+            placeholder, program_stream = PLACEHOLDER_TITLE_PREFIX, STREAM_URL
+        except ImportError:
+            host, port, pin, placeholder, program_stream = "stream.radiomost.hu", 8200, 26, "telefon-sms-viber", ""
+        command = STATUS_COMMAND.replace("@HOST@", host).replace("@PORT@", str(port)).replace("@PIN@", str(pin))
+        _, out = self.run(command, timeout=40)
+        info = parse_status(out, placeholder, program_stream, pin)
+        print("\n".join(render_status(info)))
+        if raw:
+            print("\n--- raw output ---\n" + out)
+        return not info["problems"]
 
     def resolve(self, name: str) -> str:
         """Map a short log name (diag, err, state, moode) to its path on the Pi.
@@ -485,7 +496,7 @@ class PiRemote:
             # the "Commands:" part of the module docstring is the help text
             print(__doc__.split("Commands:")[1].split("Add --yes")[0].rstrip())
         elif cmd == "status":
-            self.status()
+            self.status(raw="--raw" in args)
         elif cmd == "log":
             self.download_logs()
         elif cmd == "clear":
