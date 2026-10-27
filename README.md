@@ -27,17 +27,26 @@ plus the tools to install it. Wiring: [docs/wiring.pdf](docs/wiring.pdf).
 ## Quick start
 
 1. **On the Pi:** install moOde and enable SSH.
-2. **On your PC:** create the Python environment (needs [Poetry](https://python-poetry.org/)) and activate it:
+2. **On your PC:** create the Python environment (needs [Poetry](https://python-poetry.org/)):
 
        python scripts/local/setup_dev_env.py
-       .venv\Scripts\activate            (Linux/macOS: source .venv/bin/activate)
 
-   Run the tools with this environment's Python (`poetry run python scripts/local/<tool>.py`, or in VS Code
-   pick `.venv` with "Python: Select Interpreter"); the system Python does not have the libraries.
+   Then use it in one of two ways (the system Python does not have the libraries):
+
+   - **Activate the venv** once per terminal, then run the scripts with plain `python`:
+
+         .venv\Scripts\activate            (Linux/macOS: source .venv/bin/activate)
+         python scripts/local/status.py
+
+   - **Or use Poetry** without activating anything, prefixing every call with `poetry run`:
+
+         poetry run python scripts/local/status.py
+
+   In VS Code you can also pick `.venv` with "Python: Select Interpreter".
    Then copy `.env.example` to `.env` (git-ignored) and fill in the Pi's address and login.
 3. Run the first-time setup (safe to repeat):
 
-       python scripts/local/initial_deploy.py
+       python scripts/local/initial_deploy.py        (or: poetry run python scripts/local/initial_deploy.py)
 
    It enables I2C, copies the files, creates the venv, installs the libraries and
    installs the ready-script, then offers a reboot. Add `--reset-stations` to also delete moOde's default
@@ -117,6 +126,9 @@ After a reboot moOde runs it, and it starts the program (`python -m good_moode`)
     cd ~/scripts && source .venv/bin/activate && python -m good_moode
 
 ## Day to day, from your PC
+
+With the venv activated the commands are as below; without activating it, put `poetry run` in front of each
+(for example `poetry run python scripts/local/status.py --watch`).
 
     python scripts/local/deploy.py      # update: copy the files, install the ready-script, restart (logging off)
     python scripts/local/deploy.py --logging   # the same with logging on (program log + diagnostics logger)

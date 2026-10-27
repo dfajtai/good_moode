@@ -346,6 +346,24 @@ def _box(title: str, rows: list[str], width: int) -> list[str]:
     return [top] + ["| " + _fit(row, inner) + " |" for row in rows] + ["+" + "-" * (width - 2) + "+"]
 
 
+def _estimate_watts(load: str, relay_on: bool) -> tuple[float, float]:
+    """Rough power draw (low, high) in watts from typical datasheet values; NOT a measurement.
+
+    The Pi Zero 2 W has no power sensor. Pi with Wi-Fi: 0.6 W idle up to 1.5 W at full load (the 1-minute load average
+    over the 4 cores decides where in between); PCM5122 HAT 0.2-0.4 W; OLED 0.1 W; with the relay on, the relay
+    module adds 0.4 W and the USB speaker behind it 0.5-2.5 W (it depends on the speaker and the volume).
+    """
+    try:
+        busy = min(float(load.split()[0]) / 4, 1.0)
+    except (ValueError, IndexError):
+        busy = 0.5
+    low = 0.6 + 0.9 * busy + 0.2 + 0.1
+    high = 0.6 + 0.9 * busy + 0.4 + 0.1
+    if relay_on:
+        low, high = low + 0.4 + 0.5, high + 0.4 + 2.5
+    return low, high
+
+
 def _short_uptime(text: str) -> str:
     """"1 week, 2 days, 19 hours, 52 minutes" -> "1 w 2 d 19 h 52 min" (the header must stay short)."""
     short = re.sub(r"\bweeks?\b", "w", re.sub(r"\bdays?\b", "d", re.sub(r"\bhours?\b", "h", re.sub(r"\bminutes?\b", "min", text))))
@@ -429,9 +447,11 @@ def render_status(info: dict, width: int = WIDTH) -> list[str]:
     # SYSTEM
     temp = f"{sysi['temp']:.1f} C" if sysi["temp"] is not None else "?"
     power = "ok" if not _int_hex(sysi["throttled"]) else f"flags {sysi['throttled']}"
+    low, high = _estimate_watts(host.get("load", ""), pr["relay"] == "ON")
     lines += _box("SYSTEM", _wrap("", [f"CPU temp {temp}" + mark("system.temp"), f"Power {power}" + mark("system.power"),
                                        f"Memory {sysi['memory']} MB", f"Disk {sysi['disk']}"], inner, label_width=0, sep="     ")
-                  , width) + [""]
+                  + [f"Consumption ~{low:.1f}-{high:.1f} W   (ESTIMATE, not measured"
+                     + ("; relay on: incl. USB speaker)" if pr["relay"] == "ON" else ")")], width) + [""]
 
     # MOODE / MPD: moOde's own status files, what ALSA really outputs, and MPD
     alsa = moode["alsa"]
